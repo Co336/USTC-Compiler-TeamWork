@@ -19,6 +19,16 @@ Ptr<Type> FLOAT_T;
 Ptr<Type> INT32PTR_T;
 Ptr<Type> FLOATPTR_T;
 
+// global variables for implemention
+Ptr<Value> latest_value = nullptr;    // 指示当前最近处理的表达式的值
+Ptr<BasicBlock> CondBB = nullptr;     // 指示当前while语句的条件基本块
+Ptr<BasicBlock> NextBB = nullptr;     // 指示当前while循环的下一个基本块
+Ptr<BasicBlock> TrueBB = nullptr;     // 指示当前条件判断的True分支基本块
+Ptr<BasicBlock> FalseBB = nullptr;    // 指示当前条件判断的False分支基本块
+Ptr<BasicBlock> CurrentBB = nullptr;  // 指示当前所处的基本块位置
+long BB_id = 0;                       // 创建的BB的 label ：格式为 "......BB_<BB_id>"
+Ptr<Function> CurrentFunction = nullptr; // 指示当前所处的函数
+
 void IRBuilder::visit(SyntaxTree::Assembly &node) {
     VOID_T = Type::get_void_type(module);
     INT1_T = Type::get_int1_type(module);
@@ -100,13 +110,107 @@ void IRBuilder::visit(SyntaxTree::UnaryExpr &node) {}
 void IRBuilder::visit(SyntaxTree::FuncCallStmt &node) {
 }
 
-void IRBuilder::visit(SyntaxTree::IfStmt &node) {}
+void IRBuilder::visit(SyntaxTree::IfStmt &node) {
+    // 由于if可能是嵌套的，所以在进入一次此函数时需要将与if有关的全局变量暂存，退出时再恢复
+    // 这样能保证全局变量一直指示的是当前信息
+    // 暂存全局变量
+    std::tuple<Ptr<BasicBlock>, Ptr<BasicBlock>> temp_BBs = std::make_tuple(TrueBB, FalseBB);
+    // 创建此if相关的基本块
+    std::string BB_id_string;
+    BB_id_string = "TrueBB";
+    BB_id_string += std::to_string(BB_id++);
+    TrueBB = BasicBlock::create(module, BB_id_string, CurrentFunction);
+    BB_id_string = "FalseBB";
+    BB_id_string += std::to_string(BB_id++);
+    FalseBB = BasicBlock::create(module, BB_id_string, CurrentFunction);
 
-void IRBuilder::visit(SyntaxTree::WhileStmt &node) {}
 
-void IRBuilder::visit(SyntaxTree::BreakStmt &node) {}
 
-void IRBuilder::visit(SyntaxTree::ContinueStmt &node) {}
+
+    // 退出此if，需要恢复之前暂存的全局变量
+    TrueBB = std::get<0>(temp_BBs);
+    FalseBB = std::get<1>(temp_BBs);
+}
+
+void IRBuilder::visit(SyntaxTree::WhileStmt &node) {
+    // 由于while循环可能是嵌套的，所以在进入一次此函数时需要将与while循环有关的全局变量暂存，退出时再恢复
+    // 这样能保证全局变量一直指示的是当前信息
+    // 暂存全局变量
+    std::tuple<Ptr<BasicBlock>, Ptr<BasicBlock>, Ptr<BasicBlock>, Ptr<BasicBlock>> temp_BBs= 
+            std::make_tuple(CondBB, TrueBB, FalseBB, NextBB);
+    // 创建此while循环相关的基本块
+    std::string BB_id_string;
+    BB_id_string = "CondBB";
+    BB_id_string += std::to_string(BB_id++);
+    CondBB = BasicBlock::create(module, BB_id_string, CurrentFunction);
+    BB_id_string = "TrueBB";
+    BB_id_string += std::to_string(BB_id++);
+    TrueBB = BasicBlock::create(module, BB_id_string, CurrentFunction);
+    BB_id_string = "FalseBB";
+    BB_id_string += std::to_string(BB_id++);
+    FalseBB = BasicBlock::create(module, BB_id_string, CurrentFunction);
+    // while中 NextBB = FalseBB
+    NextBB = FalseBB;
+
+    // 开始创建 while 循环的 IR，先进入 CondBB
+    latest_value = builder->create_br(CondBB);
+    // 当前所处块变为 CondBB
+    CurrentBB = CondBB;
+    // 插入 CondBB 的 label
+    builder->set_insert_point(CondBB);
+    // 递归访问 AST 上 whilestmt 中的 cond_exp
+    // 在Expr函数中builder后会更新latest_value的值，通过它可以知道表达式类型
+    node.cond_exp->accept(*this);
+    // 由于cond_exp可能是int或者float等类型，即（）中不是一个bool值，所以需要
+    // 再进行一次比较，得到 bool 值
+    if(latest_value->get_type() != INT1_T)
+    {
+        if(latest_value->get_type() == INT32_T)
+        {   // 再进行一次int的eq比较，得到 INT1_T
+            latest_value = builder->create_icmp_eq(latest_value, CONST_INT(0));
+        }
+        else if(latest_value->get_type() == FLOAT_T)
+        {   // float 再比较一次得到 INT1_T
+            latest_value = builder->create_fcmp_eq(latest_value, CONST_FLOAT(0));
+        }
+    }
+    if(latest_value->get_type() != VOID_T)
+    {   // 是空类型则说明cond_br已经生成过了
+        latest_value = builder->create_cond_br(latest_value, FalseBB, TrueBB);
+    }
+    // 当前所处块变为 TrueBB
+    CurrentBB = TrueBB;
+    // 插入 TrueBB 的 label
+    builder->set_insert_point(TrueBB);
+    // 递归访问 AST 上 whilestmt 中的 stmt
+    node.statement->accept(*this);
+    // 接下来需要无条件转回CondBB，但是需要先判断TrueBB的最后一条指令
+    // 是不是终止指令，不是才需要加br
+    if(!CurrentBB->get_terminator())
+    {
+        latest_value = builder->create_br(CondBB);
+    }
+    // 然后是 whilestmt 的下一个基本块
+    // 当前所处块变为 NextBB
+    CurrentBB = NextBB;
+    // 插入 NextBB 的 label
+    builder->set_insert_point(NextBB);
+    // 退出此while，需要恢复之前暂存的全局变量
+    CondBB = std::get<0>(temp_BBs);
+    TrueBB = std::get<1>(temp_BBs);
+    FalseBB = std::get<2>(temp_BBs);
+    NextBB = std::get<3>(temp_BBs);    
+}
+
+void IRBuilder::visit(SyntaxTree::BreakStmt &node) {
+    // 无条件跳转到当前while循坏的下一个基本块
+    latest_value = builder->create_br(NextBB);
+}
+
+void IRBuilder::visit(SyntaxTree::ContinueStmt &node) {
+    // 无条件返回到当前while循坏的条件基本块
+    latest_value = builder->create_br(CondBB);
+}
 
 }
 }
