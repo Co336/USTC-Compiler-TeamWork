@@ -97,7 +97,9 @@ void IRBuilder::visit(SyntaxTree::BlockStmt &node) {
 
 void IRBuilder::visit(SyntaxTree::EmptyStmt &node) {}
 
-void IRBuilder::visit(SyntaxTree::ExprStmt &node) {}
+void IRBuilder::visit(SyntaxTree::ExprStmt &node) {
+    node.exp->accept(*this);
+}
 
 void IRBuilder::visit(SyntaxTree::UnaryCondExpr &node) {}
 
@@ -105,7 +107,55 @@ void IRBuilder::visit(SyntaxTree::BinaryCondExpr &node) {}
 
 void IRBuilder::visit(SyntaxTree::BinaryExpr &node) {}
 
-void IRBuilder::visit(SyntaxTree::UnaryExpr &node) {}
+void IRBuilder::visit(SyntaxTree::UnaryExpr &node) {
+    // 单目运算符 正 和 负
+    // 需要判断操作数是否是常量，若是则不需发射指令，直接设置latest_value即可
+    node.rhs->accept(*this);
+    // 得到latest_value
+    auto value_temp = latest_value;
+    // 若转换不合法则会返回nullptr，即不是常量
+    if(std::dynamic_pointer_cast<ConstantFloat>(value_temp))
+    {
+        // 右操作数是一个浮点常量，则直接返回需要的latest_value
+        if(node.op == SyntaxTree::UnaryOp::PLUS)
+            latest_value = value_temp;
+        else 
+        {
+            float value = std::dynamic_pointer_cast<ConstantFloat>(value_temp)->get_value();
+            latest_value = ConstantFloat::create(-1.0 * value, module);
+        }
+    }
+    else if(std::dynamic_pointer_cast<ConstantInt>(value_temp))
+    {
+        // 右操作数是一个整形常量，则直接返回需要的latest_value
+        if(node.op == SyntaxTree::UnaryOp::PLUS)
+            latest_value = value_temp;
+        else 
+        {
+            int value = std::dynamic_pointer_cast<ConstantInt>(value_temp)->get_value();
+            latest_value = ConstantInt::create(-1 * value, module);
+        }
+    }
+    else
+    {
+        // 右操作数不是常数
+        if(node.op == SyntaxTree::UnaryOp::PLUS)
+        {
+            latest_value = value_temp;
+        }
+        else
+        {
+            if(value_temp->get_type() == FLOAT_T)
+            {   //发射一条浮点乘法，得到 -1.0 * value_temp->get_value()
+                latest_value = builder->create_fmul(value_temp, CONST_FLOAT(-1));
+            }
+            else if(value_temp->get_type() == INT32_T)
+            {   //发射一条整数乘法，得到 -1 * value_temp->get_value()
+                latest_value = builder->create_imul(value_temp, CONST_INT(-1));
+            }
+        }
+    }
+}
 
 void IRBuilder::visit(SyntaxTree::FuncCallStmt &node) {
     // 需要在Funcdef时将函数push进符号表
@@ -116,7 +166,7 @@ void IRBuilder::visit(SyntaxTree::FuncCallStmt &node) {
     // 获取函数形参，便于在检查类型时进行类型转换
     std::vector<Ptr<Value>> func_params;
     for(auto param = Func->arg_begin(); param != Func->arg_end(); param++)
-    {   //派生类到基类的自动隐式隐式转换
+    {   //派生类到基类的自动隐式转换
         func_params.emplace_back(*param);
     }
     // 下面递归访问获得函数实参列表
