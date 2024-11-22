@@ -20,7 +20,10 @@ Ptr<Type> INT32PTR_T;
 Ptr<Type> FLOATPTR_T;
 
 // global variables for implemention
+bool LVal_retPtr;                     // 需要LVal函数返回标识符对应的值
+bool LVal_retValue;                   // 需要LVal函数返回标识符对应的指针
 Ptr<Value> latest_value = nullptr;    // 指示当前最近处理的表达式的值
+Ptr<Value> latest_ptr   = nullptr;    // 指示当前最近处理的标识符的指针
 Ptr<BasicBlock> CondBB = nullptr;     // 指示当前while语句的条件基本块
 Ptr<BasicBlock> NextBB = nullptr;     // 指示当前while循环和if语句的下一个基本块
 Ptr<BasicBlock> TrueBB = nullptr;     // 指示当前条件判断的True分支基本块
@@ -60,10 +63,97 @@ void IRBuilder::visit(SyntaxTree::FuncParam &node) {}
 
 void IRBuilder::visit(SyntaxTree::VarDef &node) {}
 
-void IRBuilder::visit(SyntaxTree::LVal &node) {}
 
+//  To be done: scope作用域的查找似乎是从大作用域往小作用域查找到第一个标识符返回， 
+//      但是实际上我们应该取最近作用域， 需要到IRBuilder.h里面修改。
+//  To be done: 暂时没有考虑数组标识符的存法， 也就是task2 中的{CONST_INT(0), CONST_INT(0)} 和 {CONST_INT(0)}
+void IRBuilder::visit(SyntaxTree::LVal &node) {
+    //  在VarDef时需要将<name, Ptr<value> >一起压入当前作用域中。
+    if(node.array_index.size() == 0) {
+        // Lval -> Ident
+        auto tmpPtr = scope.find(node.name, false);
+        //  需要保持Lval_retPtr 和 LVal_retValue 只有一个为1， 后面我会检查其他函数的情况
+        if (LVal_retPtr) {
+            //  这里说明调用者希望返回一个表达式左值， 我们需要返回的是对应标识符的指针，方便调用者进行赋值。
+            //  在压栈的时候压的Ptr<value> 是alloc的空间， 也就是说这里本身作用域里储存的就是指针。
+            latest_ptr = tmpPtr;
+            return;
+        } else if(LVal_retValue) {
+            //  这里说明调用者是调用的exp 函数，然后进入到LVal 进行表达式的求值。
+            //  我们需要先用Load 从指针中取出值， 再将值返回给调用者。
+            auto tmpValue = builder->create_load(tmpPtr);
+            latest_value = tmpValue;
+            return;
+        }
+    } else {
+        //  Lval -> Ident[exp]
+        //  我们暂不考虑多维数组情况
+        auto tmpArray = scope.find(node.name, false);
+
+        //  处理数组下标
+        auto tmpIndex = node.array_index[0];
+        tmpIndex->accept(*this);
+        //  latest_value 就是数组下标的值。 
+        auto IndexType = latest_value->get_type();
+        if(IndexType == FLOAT_T) {
+            throw UnreachableException();
+            return;
+        }
+        
+        //  tmpIndex 一定是访问exp, 这里要求exp 返回的latest_value 一定是值(不能是指针)。 
+        //  如果exp 返回的不一定是值， 有可能是指针， 告诉我一下这里需要类型检查:(
+        auto tmpPtr = builder->create_gep(tmpArray, {CONST_INT(0), latest_value});
+        if(LVal_retPtr) {
+            //  这里和单标识符一样了
+            latest_ptr = tmpPtr;
+            return;
+        } else {
+            auto tmpValue = builder->create_load(latest_value);
+            latest_value = tmpValue;
+            return;
+        }
+    }
+}
+
+//  To be done  : 这里TargetType 获取类型的方式好像有问题， 需要测试之后再作修改。
+            //  具体来说， 如果是alloc的， 不清楚get_type()能否返回正确的类型， 虽然AllocInst 也是继承于Value
+            //  还需要考虑一下其他地方会不会也有一样的问题， 感觉这代码好乱。
 void IRBuilder::visit(SyntaxTree::AssignStmt &node) {
+    //  处理表达式的左值， 得到的应该是指针
+    //  设置左值返回值
+    LVal_retValue = 0;  LVal_retPtr = 1;
+    node.target->accept(*this);
+    auto TargetPtr = latest_ptr;
+
+    //  获取右值， 访问exp， 过程中无论何时出现LVal 都直接返回值而不返回指针。
+    LVal_retValue = 1; LVal_retPtr = 0;
+    node.value->accept(*this);
+    auto tmpValue = latest_value;
     
+    //  TargetPtr, tmpValue 基类都是 Ptr<value>， 我们需要确定赋值号左右类型匹配。
+    auto TargetType = TargetPtr->get_type()->get_pointer_element_type();
+    auto ValueType = tmpValue->get_type();
+    if(TargetType == INT32_T && ValueType == INT32_T) {
+        //  赋值号两边都是int32， 直接store
+        builder->create_store(TargetPtr, tmpValue);
+        return;
+    } else if(TargetType == FLOAT_T && ValueType == FLOAT_T) {
+        //  赋值号两边都是float， 直接store
+        builder->create_store(TargetPtr, tmpValue);
+    } else if(TargetType == INT32_T && ValueType == FLOAT_T) {
+        //  FLOAT 转 INT 再store
+        auto fti_res = builder->create_fptosi(tmpValue, INT32_T);
+        builder->create_store(TargetPtr, tmpValue);
+    } else if(TargetType == FLOAT_T && ValueType == INT32_T) {
+        //  INT 转 FLOAT 再store
+        auto itf_res = builder->create_sitofp(tmpValue, FLOAT_T);
+        builder->create_store(TargetPtr, tmpValue);
+    } else {
+        //  基本类型只能为int | float， 我们不考虑给变量赋布尔值的情况。
+        throw UnreachableException();
+    }
+    
+
 }
 
 void IRBuilder::visit(SyntaxTree::Literal &node) {
