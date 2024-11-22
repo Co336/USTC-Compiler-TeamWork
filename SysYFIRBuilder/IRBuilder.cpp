@@ -167,16 +167,16 @@ void IRBuilder::visit(SyntaxTree::WhileStmt &node) {
     {
         if(latest_value->get_type() == INT32_T)
         {   // 再进行一次int的eq比较，得到 INT1_T
-            latest_value = builder->create_icmp_eq(latest_value, CONST_INT(0));
+            latest_value = builder->create_icmp_ne(latest_value, CONST_INT(0));
         }
         else if(latest_value->get_type() == FLOAT_T)
         {   // float 再比较一次得到 INT1_T
-            latest_value = builder->create_fcmp_eq(latest_value, CONST_FLOAT(0));
+            latest_value = builder->create_fcmp_ne(latest_value, CONST_FLOAT(0));
         }
     }
     if(latest_value->get_type() != VOID_T)
     {   // 是空类型则说明cond_br已经生成过了
-        latest_value = builder->create_cond_br(latest_value, FalseBB, TrueBB);
+        latest_value = builder->create_cond_br(latest_value, TrueBB, FalseBB);
     }
     // 当前所处块变为 TrueBB
     CurrentBB = TrueBB;
