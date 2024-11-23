@@ -296,11 +296,127 @@ void IRBuilder::visit(SyntaxTree::BinaryCondExpr &node) {
     // 对于 AND, 处理左操作数时的 True 分支应该为进入右操作数处理的分支，False 分支为整个条件的 False 分支，从而可以跳过右操作数的计算
     if(node.op == SyntaxTree::BinaryCondOp::LOR)
     {
-                
+        // 对于OR，处理左操作数时的 False 分支应该为进入右操作数处理的分支，True 分支为整个条件的 True 分支，从而可以跳过右操作数的计算
+        // 需要加一个 RightBB_local，在左操作数为假时进入右操作数基本块
+        // 所以对于左操作数，其falseBB不是整个条件的FalseBB，但是TrueBB是一样的
+        // 所以保险起见，先暂存FasleBB
+        Ptr<BasicBlock> tempBB = FalseBB;
+
+        // 创建 RightBB_local基本块
+        std::string BB_id_string;
+        BB_id_string = "RightBB";
+        BB_id_string += std::to_string(BB_id++);
+        Ptr<BasicBlock> RightBB_local = BasicBlock::create(module, BB_id_string, CurrentFunction);
+        // 左操作数的假分支为RightBB
+        FalseBB = RightBB_local;
+        node.lhs->accept(*this);
+        // 得到左边的 latest_value
+        // 可能不是bool类型，要先转成bool类型
+        if(latest_value->get_type() != INT1_T)
+        {
+            if(latest_value->get_type() == INT32_T)
+            {   // 再进行一次int的eq比较，得到 INT1_T
+                latest_value = builder->create_icmp_ne(latest_value, CONST_INT(0));
+            }
+            else if(latest_value->get_type() == FLOAT_T)
+            {   // float 再比较一次得到 INT1_T
+                latest_value = builder->create_fcmp_ne(latest_value, CONST_FLOAT(0));
+            }
+        }
+        if(latest_value->get_type() != VOID_T)
+        {   // 是空类型则说明cond_br已经生成过了
+            // 这里左边为假时需要继续看右边，否则直接跳到最后的TrueBB
+            latest_value = builder->create_cond_br(latest_value, TrueBB, RightBB_local);
+        }
+        // 需要在访问右边之前，先恢复FalseBB，因为进入右边后仍会暂存
+        FalseBB = tempBB;
+
+        // 当前所处块变为 RightBB_local
+        CurrentBB = RightBB_local;
+        // 插入 RightBB_local 的 label
+        builder->set_insert_point(RightBB_local);
+        // 继续访问右边
+        node.rhs->accept(*this);
+        // 得到lateet_value
+        // 可能不是bool类型，要先转成bool类型
+        if(latest_value->get_type() != INT1_T)
+        {
+            if(latest_value->get_type() == INT32_T)
+            {   // 再进行一次int的eq比较，得到 INT1_T
+                latest_value = builder->create_icmp_ne(latest_value, CONST_INT(0));
+            }
+            else if(latest_value->get_type() == FLOAT_T)
+            {   // float 再比较一次得到 INT1_T
+                latest_value = builder->create_fcmp_ne(latest_value, CONST_FLOAT(0));
+            }
+        }
+        if(latest_value->get_type() != VOID_T)
+        {   // 是空类型则说明cond_br已经生成过了
+            // 这里右边为假时需要去FalseBB，否则跳到最后的TrueBB
+            latest_value = builder->create_cond_br(latest_value, TrueBB, FalseBB);
+        }
     }
     else if(node.op == SyntaxTree::BinaryCondOp::LAND)
     {
+        // 对于AND，处理左操作数时的 True 分支应该为进入右操作数处理的分支，False 分支为整个条件的 False 分支，从而可以跳过右操作数的计算
+        // 需要加一个 RightBB_local，在左操作数为真时进入右操作数基本块
+        // 所以对于左操作数，其TrueBB不是整个条件的TrueBB，但是FalseBB是一样的
+        // 所以保险起见，先暂存TrueBB
+        Ptr<BasicBlock> tempBB = TrueBB;
 
+        // 创建 RightBB_local基本块
+        std::string BB_id_string;
+        BB_id_string = "RightBB";
+        BB_id_string += std::to_string(BB_id++);
+        Ptr<BasicBlock> RightBB_local = BasicBlock::create(module, BB_id_string, CurrentFunction);
+        // 左操作数的真分支为RightBB
+        TrueBB = RightBB_local;
+        node.lhs->accept(*this);
+        // 得到左边的 latest_value
+        // 可能不是bool类型，要先转成bool类型
+        if(latest_value->get_type() != INT1_T)
+        {
+            if(latest_value->get_type() == INT32_T)
+            {   // 再进行一次int的eq比较，得到 INT1_T
+                latest_value = builder->create_icmp_ne(latest_value, CONST_INT(0));
+            }
+            else if(latest_value->get_type() == FLOAT_T)
+            {   // float 再比较一次得到 INT1_T
+                latest_value = builder->create_fcmp_ne(latest_value, CONST_FLOAT(0));
+            }
+        }
+        if(latest_value->get_type() != VOID_T)
+        {   // 是空类型则说明cond_br已经生成过了
+            // 这里左边为真时需要继续看右边，否则直接跳到最后的FalseBB
+            latest_value = builder->create_cond_br(latest_value, RightBB_local, FalseBB);
+        }
+        // 需要在访问右边之前，先恢复TrueBB，因为进入右边后仍会暂存
+        TrueBB = tempBB;
+
+        // 当前所处块变为 RightBB_local
+        CurrentBB = RightBB_local;
+        // 插入 RightBB_local 的 label
+        builder->set_insert_point(RightBB_local);
+        // 继续访问右边
+        node.rhs->accept(*this);
+        // 得到lateet_value
+        // 可能不是bool类型，要先转成bool类型
+        if(latest_value->get_type() != INT1_T)
+        {
+            if(latest_value->get_type() == INT32_T)
+            {   // 再进行一次int的eq比较，得到 INT1_T
+                latest_value = builder->create_icmp_ne(latest_value, CONST_INT(0));
+            }
+            else if(latest_value->get_type() == FLOAT_T)
+            {   // float 再比较一次得到 INT1_T
+                latest_value = builder->create_fcmp_ne(latest_value, CONST_FLOAT(0));
+            }
+        }
+        if(latest_value->get_type() != VOID_T)
+        {   // 是空类型则说明cond_br已经生成过了
+            // 这里右边为真时需要去TrueBB，否则跳到最后的FalseBB
+            latest_value = builder->create_cond_br(latest_value, TrueBB, FalseBB);
+        }
     }
     else
     {
