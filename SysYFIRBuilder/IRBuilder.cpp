@@ -58,7 +58,7 @@ void IRBuilder::visit(SyntaxTree::Assembly &node) {
 typedef struct InitItem
 {
     bool value_flag;                  // 表示当前初始化项是否是单一值（true 表示是单一值，false 表示嵌套列表）
-    Value *expr;                      // 指向表达式对应的 LLVM IR 值，如果是单一值则存储该值；如果是嵌套列表则此值为空
+    Ptr<Value> expr;                      // 指向表达式对应的 LLVM IR 值，如果是单一值则存储该值；如果是嵌套列表则此值为空
     std::vector<InitItem> list;       // 嵌套的初始化项列表，当 value_flag 为 false 时有效，表示初始化为一个复合类型
 } InitItem;
 
@@ -72,7 +72,7 @@ void IRBuilder::visit(SyntaxTree::InitVal &node) {
     {
         node.expr->accept(*this);            // 递归访问表达式节点，生成对应的 LLVM IR
         now_init_item.value_flag = true;    // 标记当前初始化项为单一值
-        now_init_item.expr = recent_value;  // 将生成的值赋给当前项的 expr 字段
+        now_init_item.expr = latest_value;  // 将生成的值赋给当前项的 expr 字段
     }
     else
     {
