@@ -252,12 +252,329 @@ void IRBuilder::visit(SyntaxTree::ExprStmt &node) {
     node.exp->accept(*this);
 }
 
-void IRBuilder::visit(SyntaxTree::UnaryCondExpr &node) {}
+void IRBuilder::visit(SyntaxTree::UnaryCondExpr &node) {
+    // 单目条件运算，只能是 NOT
+    if(node.op != SyntaxTree::UnaryCondOp::NOT)
+        return;
 
-void IRBuilder::visit(SyntaxTree::BinaryCondExpr &node) {}
+    std::tuple<Ptr<BasicBlock>, Ptr<BasicBlock>> temp_BBS = std::make_tuple(TrueBB, FalseBB);
+    // 先暂存 TrueBB 和 FalseBB，因为在访问操作数时可能改变他们的值
+    // 因为括号中的整个条件可能很复杂，然后访问操作数时，由于需要短路计算
+    // 所以可能会改变全局变量的值，使得全局变量的值指示当时的情况，为了能够恢复之前的状态，需要暂存
+    // 将NOT去掉后，True和False情况会相反
+    // 更新当前true,fasle分支
+    TrueBB = std::get<1>(temp_BBS);
+    FalseBB = std::get<0>(temp_BBS);
+    // 访问操作数
+    node.rhs->accept(*this);
+    //得到新的 latest_value
+    auto value_temp = latest_value;
+    // 可能是INT1_T，先进行类型转换
+    if(value_temp->get_type() == INT1_T)
+    {
+        value_temp = builder->create_zext(value_temp, INT32_T);
+    }
+    //发射比较指令
+    if(value_temp->get_type() == INT32_T)
+    {
+        latest_value = builder->create_icmp_eq(value_temp, CONST_INT(0));
+    }
+    else if(value_temp->get_type() == FLOAT_T)
+    {
+        latest_value = builder->create_fcmp_eq(value_temp, CONST_FLOAT(0));
+    }
 
-void IRBuilder::visit(SyntaxTree::BinaryExpr &node) {}
+    // 恢复
+    TrueBB = std::get<0>(temp_BBS);
+    FalseBB = std::get<1>(temp_BBS);
+}
 
+void IRBuilder::visit(SyntaxTree::BinaryCondExpr &node) {
+    // 这里需要处理 AND 和 OR 的短路计算
+    // 方法是先根据操作符的类型去处理左操作数
+    // 对于 OR , 处理左操作数时的 False 分支应该为进入右操作数处理的分支，True 分支为整个条件的 True 分支，从而可以跳过右操作数的计算
+    // 对于 AND, 处理左操作数时的 True 分支应该为进入右操作数处理的分支，False 分支为整个条件的 False 分支，从而可以跳过右操作数的计算
+    if(node.op == SyntaxTree::BinaryCondOp::LOR)
+    {
+                
+    }
+    else if(node.op == SyntaxTree::BinaryCondOp::LAND)
+    {
+
+    }
+    else
+    {
+        // 为关系算符
+        // 得到左右操作数的值
+        node.lhs->accept(*this);
+        auto l_value_temp = latest_value;
+        node.rhs->accept(*this);
+        auto r_value_temp = latest_value;
+
+        // 先进行类型转换，再进行比较
+        // 这里可能会有INT1_T类型的存在，需要考虑多种情况
+        if(l_value_temp->get_type() == INT1_T && r_value_temp->get_type() == INT1_T)
+        {
+            //均扩展到INT32_T再进行比较
+            l_value_temp = builder->create_zext(l_value_temp, INT32_T);
+            r_value_temp = builder->create_zext(r_value_temp, INT32_T);
+        }
+        else if(l_value_temp->get_type() == INT1_T && r_value_temp->get_type() == INT32_T)
+        {
+            //将l扩展到32
+            l_value_temp = builder->create_zext(l_value_temp, INT32_T);
+        }   
+        else if(l_value_temp->get_type() == INT32_T && r_value_temp->get_type() == INT1_T)
+        {
+            //将r扩展到32
+            r_value_temp = builder->create_zext(r_value_temp, INT32_T);
+        } 
+        else if(l_value_temp->get_type() == INT1_T && r_value_temp->get_type() == FLOAT_T)
+        {
+            //将l变为FLOAT
+            l_value_temp = builder->create_zext(l_value_temp, INT32_T);
+            l_value_temp = builder->create_sitofp(l_value_temp, FLOAT_T);
+        } 
+        else if(l_value_temp->get_type() == FLOAT_T && r_value_temp->get_type() == INT1_T)
+        {
+            //将r变为FLOAT
+            r_value_temp = builder->create_zext(r_value_temp, INT32_T);
+            r_value_temp = builder->create_sitofp(r_value_temp, FLOAT_T);
+        } 
+        else if(l_value_temp->get_type() == INT32_T && r_value_temp->get_type() == FLOAT_T)
+        {
+            //将l变为FLOAT
+            l_value_temp = builder->create_sitofp(l_value_temp, FLOAT_T);
+        } 
+        else if(l_value_temp->get_type() == FLOAT_T && r_value_temp->get_type() == INT32_T)
+        {
+            //将r变为FLOAT
+            r_value_temp = builder->create_sitofp(r_value_temp, FLOAT_T);
+        }
+        // 现在类型一致，发射指令 
+        if(l_value_temp->get_type() == FLOAT_T)
+        {
+            switch(node.op)
+            {
+                case SyntaxTree::BinaryCondOp::EQ:
+                    latest_value = builder->create_fcmp_eq(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::NEQ:
+                    latest_value = builder->create_fcmp_ne(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::GT:
+                    latest_value = builder->create_fcmp_gt(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::GTE:
+                    latest_value = builder->create_fcmp_ge(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::LT:
+                    latest_value = builder->create_fcmp_lt(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::LTE:
+                    latest_value = builder->create_fcmp_le(l_value_temp, r_value_temp);
+                    break;
+                default:
+                    break;
+            }
+        }
+        else if(l_value_temp->get_type() == INT32_T)
+        {
+            switch(node.op)
+            {
+                case SyntaxTree::BinaryCondOp::EQ:
+                    latest_value = builder->create_icmp_eq(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::NEQ:
+                    latest_value = builder->create_icmp_ne(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::GT:
+                    latest_value = builder->create_icmp_gt(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::GTE:
+                    latest_value = builder->create_icmp_ge(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::LT:
+                    latest_value = builder->create_icmp_lt(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinaryCondOp::LTE:
+                    latest_value = builder->create_icmp_le(l_value_temp, r_value_temp);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+
+// to do
+// 操作数可能出现INT1_T的情况，但是我暂时未添加这个判断，感觉是不会出现的
+void IRBuilder::visit(SyntaxTree::BinaryExpr &node) {
+    // 双目运算 加 减 乘 除 模
+    node.lhs->accept(*this);
+    // 得到返回后更新的latest_value值
+    auto l_value_temp = latest_value;
+    node.rhs->accept(*this);
+    // 得到返回后更新的latest_value值)
+    auto r_value_temp = latest_value;
+    // 下面先处理常量情况，再处理变量情况
+    // 两操作数都是常量，则不用发射指令，直接更新latest_value值
+    // 四种情况
+    if(std::dynamic_pointer_cast<ConstantFloat>(l_value_temp) && std::dynamic_pointer_cast<ConstantFloat>(r_value_temp))
+    {
+        auto l_value = std::dynamic_pointer_cast<ConstantFloat>(l_value_temp)->get_value();
+        auto r_value = std::dynamic_pointer_cast<ConstantFloat>(r_value_temp)->get_value();
+        //两边都是常量浮点数
+        switch(node.op)
+        {
+            case SyntaxTree::BinOp::PLUS:
+                latest_value = CONST_FLOAT(l_value + r_value);
+                break;
+            case SyntaxTree::BinOp::MINUS:
+                latest_value = CONST_FLOAT(l_value - r_value);
+                break;
+            case SyntaxTree::BinOp::MULTIPLY:
+                latest_value = CONST_FLOAT(l_value * r_value);
+                break;
+            case SyntaxTree::BinOp::DIVIDE:
+                latest_value = CONST_FLOAT(l_value / r_value);
+                break;
+            default:
+                break;
+        }
+    }
+    else if(std::dynamic_pointer_cast<ConstantFloat>(l_value_temp) && std::dynamic_pointer_cast<ConstantInt>(r_value_temp))
+    {
+        auto l_value = std::dynamic_pointer_cast<ConstantFloat>(l_value_temp)->get_value();
+        auto r_value = std::dynamic_pointer_cast<ConstantInt>(r_value_temp)->get_value();
+        //左边是常量浮点数，右边是常量整数
+        switch(node.op)
+        {
+            case SyntaxTree::BinOp::PLUS:
+                latest_value = CONST_FLOAT(l_value + float(r_value));
+                break;
+            case SyntaxTree::BinOp::MINUS:
+                latest_value = CONST_FLOAT(l_value - float(r_value));
+                break;
+            case SyntaxTree::BinOp::MULTIPLY:
+                latest_value = CONST_FLOAT(l_value * float(r_value));
+                break;
+            case SyntaxTree::BinOp::DIVIDE:
+                latest_value = CONST_FLOAT(l_value / float(r_value));
+                break;
+            default:
+                break;
+        }
+    }
+    else if(std::dynamic_pointer_cast<ConstantInt>(l_value_temp) && std::dynamic_pointer_cast<ConstantFloat>(r_value_temp))
+    {
+        auto l_value = std::dynamic_pointer_cast<ConstantInt>(l_value_temp)->get_value();
+        auto r_value = std::dynamic_pointer_cast<ConstantFloat>(r_value_temp)->get_value();
+        //右边是常量浮点数，左边是常量整数
+        switch(node.op)
+        {
+            case SyntaxTree::BinOp::PLUS:
+                latest_value = CONST_FLOAT(r_value + float(l_value));
+                break;
+            case SyntaxTree::BinOp::MINUS:
+                latest_value = CONST_FLOAT(float(l_value) - r_value);
+                break;
+            case SyntaxTree::BinOp::MULTIPLY:
+                latest_value = CONST_FLOAT(r_value * float(l_value));
+                break;
+            case SyntaxTree::BinOp::DIVIDE:
+                latest_value = CONST_FLOAT(float(l_value) / r_value);
+                break;
+            default:
+                break;
+        }
+    }
+    else if(std::dynamic_pointer_cast<ConstantInt>(l_value_temp) && std::dynamic_pointer_cast<ConstantInt>(r_value_temp))
+    {
+        auto l_value = std::dynamic_pointer_cast<ConstantInt>(l_value_temp)->get_value();
+        auto r_value = std::dynamic_pointer_cast<ConstantInt>(r_value_temp)->get_value();
+        //左边是常量整数，右边是常量整数
+        switch(node.op)
+        {
+            case SyntaxTree::BinOp::PLUS:
+                latest_value = CONST_INT(r_value + l_value);
+                break;
+            case SyntaxTree::BinOp::MINUS:
+                latest_value = CONST_INT(l_value - r_value);
+                break;
+            case SyntaxTree::BinOp::MULTIPLY:
+                latest_value = CONST_INT(r_value * l_value);
+                break;
+            case SyntaxTree::BinOp::DIVIDE:
+                latest_value = CONST_INT(l_value / r_value);
+                break;
+            case SyntaxTree::BinOp::MODULO:
+                latest_value = CONST_INT(l_value % r_value);
+            default:
+                break;
+        }
+    }
+    else
+    {
+        //有变量，则发射指令
+        //左右的类型可能不一样，要先进行类型转换
+        if(l_value_temp->get_type() == INT32_T && r_value_temp->get_type() == FLOAT_T)
+        {
+            l_value_temp = builder->create_sitofp(l_value_temp, FLOAT_T);
+        }
+        else if(r_value_temp->get_type() == INT32_T && l_value_temp->get_type() == FLOAT_T)
+        {
+            r_value_temp = builder->create_sitofp(r_value_temp, FLOAT_T);
+        }
+        
+        // 左右类型一致，发射指令
+        if(l_value_temp->get_type() == FLOAT_T)
+        {
+            switch(node.op)
+            {
+                case SyntaxTree::BinOp::PLUS:
+                    latest_value = builder->create_fadd(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinOp::MINUS:
+                    latest_value = builder->create_fsub(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinOp::MULTIPLY:
+                    latest_value = builder->create_fmul(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinOp::DIVIDE:
+                    latest_value = builder->create_fdiv(l_value_temp, r_value_temp);
+                    break;
+                default:
+                    break;
+            }
+        }
+        else
+        {
+            switch(node.op)
+            {
+                case SyntaxTree::BinOp::PLUS:
+                    latest_value = builder->create_iadd(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinOp::MINUS:
+                    latest_value = builder->create_isub(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinOp::MULTIPLY:
+                    latest_value = builder->create_imul(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinOp::DIVIDE:
+                    latest_value = builder->create_isdiv(l_value_temp, r_value_temp);
+                    break;
+                case SyntaxTree::BinOp::MODULO:
+                    latest_value = builder->create_isrem(l_value_temp, r_value_temp);
+                default:
+                    break;
+            }
+        }
+    }
+}
+
+// to do
+// 操作数可能出现INT1_T的情况，但是我暂时未添加这个判断，感觉是不会出现的
 void IRBuilder::visit(SyntaxTree::UnaryExpr &node) {
     // 单目运算符 正 和 负
     // 需要判断操作数是否是常量，若是则不需发射指令，直接设置latest_value即可
@@ -273,7 +590,7 @@ void IRBuilder::visit(SyntaxTree::UnaryExpr &node) {
         else 
         {
             float value = std::dynamic_pointer_cast<ConstantFloat>(value_temp)->get_value();
-            latest_value = ConstantFloat::create(-1.0 * value, module);
+            latest_value = CONST_FLOAT(-1.0 * value);
         }
     }
     else if(std::dynamic_pointer_cast<ConstantInt>(value_temp))
@@ -284,7 +601,7 @@ void IRBuilder::visit(SyntaxTree::UnaryExpr &node) {
         else 
         {
             int value = std::dynamic_pointer_cast<ConstantInt>(value_temp)->get_value();
-            latest_value = ConstantInt::create(-1 * value, module);
+            latest_value = CONST_INT(-1 * value);
         }
     }
     else
@@ -421,15 +738,10 @@ void IRBuilder::visit(SyntaxTree::IfStmt &node) {
             latest_value = builder->create_br(NextBB);
         }
     }
-    // 有 else 分支
-    if(node.else_statement)
-    {
-        // 当前所处块变为 NextBB
-        CurrentBB = NextBB;
-        // 插入 NextBB 的 label
-        builder->set_insert_point(NextBB);
-    }
-    
+    // 当前所处块变为 NextBB
+    CurrentBB = NextBB;
+    // 插入 NextBB 的 label
+    builder->set_insert_point(NextBB);
     // 退出此if，需要恢复之前暂存的全局变量
     TrueBB = std::get<0>(temp_BBs);
     FalseBB = std::get<1>(temp_BBs);
