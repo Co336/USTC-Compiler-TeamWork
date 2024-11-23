@@ -37,6 +37,7 @@ Ptr<BasicBlock> FalseBB = nullptr;    // 指示当前条件判断的False分支�
 Ptr<BasicBlock> CurrentBB = nullptr;  // 指示当前所处的基本块位置
 Ptr<BasicBlock> retBB   = nullptr;    // 指示函数返回值基本块的位置， 在retBB中统一处理函数返回。
 long BB_id = 0;                       // 创建的BB的 label ：格式为 "......BB_<BB_id>"
+// to do ：在Fundef时需要将构造的fn赋给CurrentFunction，因为我后面BB的创建都是用的这个！！！！！！！！！
 Ptr<Function> CurrentFunction = nullptr; // 指示当前所处的函数
 
 void IRBuilder::visit(SyntaxTree::Assembly &node) {
