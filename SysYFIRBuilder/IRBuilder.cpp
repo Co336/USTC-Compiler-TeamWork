@@ -11,6 +11,7 @@ namespace IR
 #define CONST_INT(num) ConstantInt::create(num, module)
 #define CONST_FLOAT(num) ConstantFloat::create(num, module)
 
+std::list<std::map<std::string, Constant *>> const_list;//全局常量表
 // types
 Ptr<Type> VOID_T;
 Ptr<Type> INT1_T;
@@ -20,6 +21,10 @@ Ptr<Type> INT32PTR_T;
 Ptr<Type> FLOATPTR_T;
 
 // global variables for implemention
+std::vector<Type *> Params;           //函数形参类型表
+std::vector<std::string> Param_names; //函数形参名表
+bool new_func_def = false //指示是否为新定义的函数，funcdef开头定义为true 
+
 bool LVal_retPtr;                     // 需要LVal函数返回标识符对应的值
 bool LVal_retValue;                   // 需要LVal函数返回标识符对应的指针
 bool func_block;                      // 指示FuncDef调用的block函数
@@ -66,6 +71,27 @@ typedef struct InitItem
 
 InitItem last_InitItem;               // 存最近生成的初始化项，作为遍历和构造递归结构时的中间结果
 
+Ptr<Type> get_type(SyntaxTree::Type type, bool is_pointer) { //不知道会不会和gettype()冲突？
+    switch (type) {
+    case SyntaxTree::Type::VOID:
+        return VOID_T;
+    case SyntaxTree::Type::BOOL:
+        return INT1_T;
+    case SyntaxTree::Type::INT:
+        if (is_pointer)
+            return INT32PTR_T;
+        else
+            return INT32_T;
+    case SyntaxTree::Type::FLOAT:
+        if (is_pointer)
+            return FLOATPTR_T;
+        else
+            return FLOAT_T;
+    default:
+        return VOID_T;
+    }
+}
+
 void IRBuilder::visit(SyntaxTree::InitVal &node) {
     InitItem now_init_item;
     // 如果节点是一个表达式类型的初始化值
@@ -91,11 +117,98 @@ void IRBuilder::visit(SyntaxTree::InitVal &node) {
 }
 
 void IRBuilder::visit(SyntaxTree::FuncDef &node) {
-    auto fn = Function::create(FunctionType::create(INT32_T, {}, this->module), "main", this->module);
-    this->cur_func = fn;
-    auto entry = BasicBlock::create(this->module, "entry", fn);
-    builder->set_insert_point(entry);
+    // 标记当前为一个新的函数定义
+    new_func_def = true;
+
+    // 清空函数参数类型和名称的存储列表
+    Params.clear();
+    Param_names.clear();
+
+    // 获取函数的返回类型
+    Ptr<Type> ret_type = get_type(node.ret_type, false);
+
+    // 如果函数有参数列表，处理参数
+    if (node.param_list != nullptr) {
+        node.param_list->accept(*this);
+    }
+
+    // 构造函数类型（包含返回类型和参数类型）
+    Ptr<FunctionType> func_type = FunctionType::get(ret_type, Params);
+
+    // 创建函数对象并设置为当前函数
+    Ptr<Function> fn = Function::create(func_type, node.name, this->module);
+    CurrentFunction = fn;
+    scope.push(node.name, fn);
+
+    // 准备函数形参
+    std::vector<Value *> args;
+    for (auto arg = fn->arg_begin(); arg != fn->arg_end(); ++arg) {
+        args.push_back(*arg);
+    }
+
+    // 进入函数作用域
+    scope.enter();
+
+    // 为函数创建一个新的常量表
+    std::map<std::string, Constant *> new_table;
+    const_list.push_front(new_table);
+
+    // 创建入口基本块并设置为当前基本块
+    Ptr<BasicBlock> entry_bb = BasicBlock::create(this->module, "entry", fn);
+    CurrentBB = entry_bb;
+    builder->set_insert_point(entry_bb);
+
+    // 为形参分配内存空间并存储
+    for (int i = 0; i < (int)Param_names.size(); ++i) {
+        auto alloc = builder->create_alloca(Params[i]);
+        builder->create_store(args[i], alloc);
+        scope.push(Param_names[i], alloc);
+    }
+
+    // 初始化返回相关变量
+    retBB = BasicBlock::create(this->module, "ret", fn);
+    Ptr<BasicBlock> tmpAlloc = retAlloc;  // 临时保存 retAlloc
+    retAlloc = (ret_type != VOID_T) ? builder->create_alloca(ret_type) : nullptr;
+
+    // 设置 `func_ret` 为 false，表示尚未检测到返回
+    func_ret = false;
+
+    // 设置返回块的插入点并生成返回指令
+    builder->set_insert_point(retBB);
+    if (ret_type == VOID_T) {
+        // void 类型函数直接生成 void 返回指令
+        builder->create_void_ret();
+    } else {
+        auto retLoad = builder->create_load(retAlloc);
+        builder->create_ret(retLoad);
+    }
+
+    // 恢复插入点到入口块
+    CurrentBB = entry_bb;
+    builder->set_insert_point(entry_bb);
+
+    // 处理函数体
     node.body->accept(*this);
+
+    // 如果函数体内没有返回指令，补充默认返回
+    if (!func_ret) {
+        if (node.name == "main" && ret_type == INT32_T) {
+            // 特殊处理 main 函数，补充返回值 0
+            builder->create_store(CONST_INT(0), retAlloc);
+            builder->create_br(retBB);
+        } else if (ret_type == VOID_T) {
+            // void 类型函数补充返回 void
+            builder->create_br(retBB);
+        } else {
+            // 非 void 类型函数补充默认返回值 0
+            builder->create_store(CONST_INT(0), retAlloc);
+            builder->create_br(retBB);
+        }
+    }
+
+    // 恢复 retAlloc 并退出作用域
+    retAlloc = tmpAlloc;
+    scope.exit();
 }
 
 void IRBuilder::visit(SyntaxTree::FuncFParamList &node) {}
