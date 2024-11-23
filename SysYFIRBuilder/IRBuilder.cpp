@@ -21,9 +21,8 @@ Ptr<Type> INT32PTR_T;
 Ptr<Type> FLOATPTR_T;
 
 // global variables for implemention
-std::vector<Type *> Params;           //函数形参类型表
-std::vector<std::string> Param_names; //函数形参名表
-bool new_func_def = false //指示是否为新定义的函数，funcdef开头定义为true 
+Ptr<std::vector<Type *>> Params;            // 函数形参类型表
+Ptr<std::vector<std::string>> Param_names; // 函数形参名表
 
 bool LVal_retPtr;                     // 需要LVal函数返回标识符对应的值
 bool LVal_retValue;                   // 需要LVal函数返回标识符对应的指针
@@ -118,11 +117,11 @@ void IRBuilder::visit(SyntaxTree::InitVal &node) {
 
 void IRBuilder::visit(SyntaxTree::FuncDef &node) {
     // 标记当前为一个新的函数定义
-    new_func_def = true;
+    func_block = true;
 
     // 清空函数参数类型和名称的存储列表
-    Params.clear();
-    Param_names.clear();
+    Params = std::make_shared<std::vector<Type *>>();
+    Param_names = std::make_shared<std::vector<std::string>>();
 
     // 获取函数的返回类型
     Ptr<Type> ret_type = get_type(node.ret_type, false);
@@ -133,7 +132,7 @@ void IRBuilder::visit(SyntaxTree::FuncDef &node) {
     }
 
     // 构造函数类型（包含返回类型和参数类型）
-    Ptr<FunctionType> func_type = FunctionType::get(ret_type, Params);
+    Ptr<FunctionType> func_type = FunctionType::get(ret_type, *Params);
 
     // 创建函数对象并设置为当前函数
     Ptr<Function> fn = Function::create(func_type, node.name, this->module);
@@ -159,10 +158,10 @@ void IRBuilder::visit(SyntaxTree::FuncDef &node) {
     builder->set_insert_point(entry_bb);
 
     // 为形参分配内存空间并存储
-    for (int i = 0; i < (int)Param_names.size(); ++i) {
-        auto alloc = builder->create_alloca(Params[i]);
+    for (int i = 0; i < (int)(Param_names->size()); i++) {
+        auto alloc = builder->create_alloca((*Params)[i]);
         builder->create_store(args[i], alloc);
-        scope.push(Param_names[i], alloc);
+        scope.push((*Param_names)[i], alloc);
     }
 
     // 初始化返回相关变量
