@@ -126,21 +126,24 @@ void IRBuilder::visit(SyntaxTree::VarDef &node) {
 	}
 }
 
-//  To be done: scope作用域的查找似乎是从大作用域往小作用域查找到第一个标识符返回， 
-//      但是实际上我们应该取最近作用域， 需要到IRBuilder.h里面修改。
-//  To be done: 暂时没有考虑数组标识符的存法， 也就是task2 中的{CONST_INT(0), CONST_INT(0)} 和 {CONST_INT(0)}
+
 void IRBuilder::visit(SyntaxTree::LVal &node) {
     //  在VarDef时需要将<name, Ptr<value> >一起压入当前作用域中。
+
+    //  处理数组index的时候也可能调用LVal， 所以这里可能嵌套， 先保存全局变量的值。
+    auto tmp_LVal_retPtr = LVal_retPtr;
+    auto tmp_LVal_retValue = LVal_retValue;
+
     if(node.array_index.size() == 0) {
         // Lval -> Ident
         auto tmpPtr = scope.find(node.name, false);
         //  需要保持Lval_retPtr 和 LVal_retValue 只有一个为1， 后面我会检查其他函数的情况
-        if (LVal_retPtr) {
+        if (tmp_LVal_retPtr) {
             //  这里说明调用者希望返回一个表达式左值， 我们需要返回的是对应标识符的指针，方便调用者进行赋值。
             //  在压栈的时候压的Ptr<value> 是alloc的空间， 也就是说这里本身作用域里储存的就是指针。
             latest_ptr = tmpPtr;
             return;
-        } else if(LVal_retValue) {
+        } else if(tmp_LVal_retValue) {
             //  这里说明调用者是调用的exp 函数，然后进入到LVal 进行表达式的求值。
             //  我们需要先用Load 从指针中取出值， 再将值返回给调用者。
             auto tmpValue = builder->create_load(tmpPtr);
@@ -161,20 +164,38 @@ void IRBuilder::visit(SyntaxTree::LVal &node) {
             throw UnreachableException();
             return;
         }
-        
-        //  tmpIndex 一定是访问exp, 这里要求exp 返回的latest_value 一定是值(不能是指针)。 
-        //  如果exp 返回的不一定是值， 有可能是指针， 告诉我一下这里需要类型检查:(
-        auto tmpPtr = builder->create_gep(tmpArray, {CONST_INT(0), latest_value});
-        if(LVal_retPtr) {
-            //  这里和单标识符一样了
-            latest_ptr = tmpPtr;
-            return;
-        } else {
-            auto tmpValue = builder->create_load(latest_value);
-            latest_value = tmpValue;
-            return;
+
+        //  如果考虑到函数传参， 这里应该有两种tmpArray 的类型
+        //  如果函数传参 int a[] , 符号表里推的应该是 INT32PTR_T, 我们取gep的时候就应该直接取偏移量， 
+        //    否则需要先用常数 0 进入数组第一维， 再取偏移量。
+        if(tmpArray->as<Ptr<PointerType>()) {
+            // 说明tmpArray 是pointer类型， 那么我们直接走偏移量
+            auto tmpPtr = builder->create_gep(tmpArray, {latest_value});
+            if(tmp_LVal_retPtr) {
+                //  这里和单标识符一样了
+                latest_ptr = tmpPtr;
+                return;
+            } else if(tmp_LVal_retValue) {
+                auto tmpValue = builder->create_load(latest_value);
+                latest_value = tmpValue;
+                return;
+            }
+        } else if(tmpArray->as<Ptr<ArrayType>()){
+            auto tmpPtr = builder->create_gep(tmpArray, {CONST_INT(0), latest_value});
+            if(tmp_LVal_retPtr) {
+                //  这里和单标识符一样了
+                latest_ptr = tmpPtr;
+                return;
+            } else if(tmp_LVal_retValue) {
+                auto tmpValue = builder->create_load(latest_value);
+                latest_value = tmpValue;
+                return;
+            }
         }
     }
+
+    LVal_retPtr = tmp_LVal_retPtr;
+    LVal_retValue = tmp_LVal_retValue;
 }
 
 //  如果测试时这里出现问题请告诉我
