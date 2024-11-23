@@ -211,7 +211,12 @@ void IRBuilder::visit(SyntaxTree::FuncDef &node) {
     scope.exit();
 }
 
-void IRBuilder::visit(SyntaxTree::FuncFParamList &node) {}
+void IRBuilder::visit(SyntaxTree::FuncFParamList &node) {
+    for (auto param : node.params)
+    {
+        param->accept(*this);
+    }
+}
 
 void IRBuilder::visit(SyntaxTree::FuncParam &node) {}
 
