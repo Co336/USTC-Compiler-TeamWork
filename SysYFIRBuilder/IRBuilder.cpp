@@ -61,8 +61,29 @@ void IRBuilder::visit(SyntaxTree::FuncFParamList &node) {}
 
 void IRBuilder::visit(SyntaxTree::FuncParam &node) {}
 
-void IRBuilder::visit(SyntaxTree::VarDef &node) {}
-
+//  To be done: 这个函数没有完成(所有初始化都没有做， 也没有考虑数组)， 只是实现了一个非常非常粗糙的版本用来测试后面的一些visit函数。
+void IRBuilder::visit(SyntaxTree::VarDef &node) {
+    if(scope.in_global()) {
+		if(node.btype == SyntaxTree::Type::INT) {
+			auto zero_initializer = ConstantZero::create(INT32_T, module);
+			auto GlobalAlloca = GlobalVariable::create(node.name, module, INT32_T, false, zero_initializer);
+			scope.push(node.name, GlobalAlloca);
+		} else {
+			auto zero_initializer = ConstantZero::create(FLOAT_T, module);
+			auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, false, zero_initializer);
+			scope.push(node.name, GlobalAlloca);
+		}
+		
+	} else {
+		if(node.btype == SyntaxTree::Type::INT) {
+			auto VarAlloca = builder->create_alloca(INT32_T);
+			scope.push(node.name, VarAlloca);
+		} else {
+			auto VarAlloca = builder->create_alloca(FLOAT_T);
+			scope.push(node.name, VarAlloca);
+		}
+	}
+}
 
 //  To be done: scope作用域的查找似乎是从大作用域往小作用域查找到第一个标识符返回， 
 //      但是实际上我们应该取最近作用域， 需要到IRBuilder.h里面修改。
@@ -115,9 +136,7 @@ void IRBuilder::visit(SyntaxTree::LVal &node) {
     }
 }
 
-//  To be done  : 这里TargetType 获取类型的方式好像有问题， 需要测试之后再作修改。
-            //  具体来说， 如果是alloc的， 不清楚get_type()能否返回正确的类型， 虽然AllocInst 也是继承于Value
-            //  还需要考虑一下其他地方会不会也有一样的问题， 感觉这代码好乱。
+//  如果测试时这里出现问题请告诉我
 void IRBuilder::visit(SyntaxTree::AssignStmt &node) {
     //  处理表达式的左值， 得到的应该是指针
     //  设置左值返回值
@@ -152,19 +171,20 @@ void IRBuilder::visit(SyntaxTree::AssignStmt &node) {
         //  基本类型只能为int | float， 我们不考虑给变量赋布尔值的情况。
         throw UnreachableException();
     }
-    
-
 }
 
+//  因为我们开全局变量返回， 所以原本的visitee_val我替换成了latest_value
 void IRBuilder::visit(SyntaxTree::Literal &node) {
     switch (node.literal_type)
     {
     case SyntaxTree::Type::INT: {
-        this->visitee_val = CONST_INT(node.int_const);
+        //  change from visitee_val to latest_value
+        latest_value = CONST_INT(node.int_const);
         break;
     }
     case SyntaxTree::Type::FLOAT: {
-        this->visitee_val = CONST_FLOAT(node.float_const);
+        //  change from visitee_val to latest_value
+        latest_value = CONST_FLOAT(node.float_const);
         break;
     }
     default:
@@ -173,12 +193,20 @@ void IRBuilder::visit(SyntaxTree::Literal &node) {
     }
 }
 
+//  这里也是同样， 我们将原本的visitee_val 替换成 latest_value
+//  To be done: 需要检查函数返回值类型和得到的ret参数类型是否一致， 如果不一致， 需要进行类型转换。
 void IRBuilder::visit(SyntaxTree::ReturnStmt &node) {
-    this->visitee_val.reset();
-    node.ret->accept(*this);
-    builder->create_ret(this->visitee_val);
+    if(node.ret == nullptr) {
+        //  void类型， 查了一下可以这么返回空。
+        builder->create_void_ret();
+    } else {
+        node.ret->accept(*this);
+        builder->create_ret(latest_value);
+    }
 }
 
+//  To be done: 等上个厕所回来改， 我想统一开新作用域的位置， 就是在调用者的位置开作用域。
+//          就比如函数就在FunDef开， 然后if和while在对应的stmt开， 等会儿回来去那边开一个， 这边block就不动了。
 void IRBuilder::visit(SyntaxTree::BlockStmt &node) {
     for (auto stmt: node.body) {
         stmt->accept(*this);
