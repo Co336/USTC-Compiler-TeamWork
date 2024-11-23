@@ -285,7 +285,7 @@ void IRBuilder::visit(SyntaxTree::LVal &node) {
         //  如果考虑到函数传参， 这里应该有两种tmpArray 的类型
         //  如果函数传参 int a[] , 符号表里推的应该是 INT32PTR_T, 我们取gep的时候就应该直接取偏移量， 
         //    否则需要先用常数 0 进入数组第一维， 再取偏移量。
-        if(tmpArray->as<Ptr<PointerType>()) {
+        if(tmpArray->as<Ptr<PointerType>>()) {
             // 说明tmpArray 是pointer类型， 那么我们直接走偏移量
             auto tmpPtr = builder->create_gep(tmpArray, {latest_value});
             if(tmp_LVal_retPtr) {
@@ -297,7 +297,7 @@ void IRBuilder::visit(SyntaxTree::LVal &node) {
                 latest_value = tmpValue;
                 return;
             }
-        } else if(tmpArray->as<Ptr<ArrayType>()){
+        } else if(tmpArray->as<Ptr<ArrayType>>()){
             auto tmpPtr = builder->create_gep(tmpArray, {CONST_INT(0), latest_value});
             if(tmp_LVal_retPtr) {
                 //  这里和单标识符一样了
