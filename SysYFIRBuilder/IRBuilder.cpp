@@ -22,13 +22,20 @@ Ptr<Type> FLOATPTR_T;
 // global variables for implemention
 bool LVal_retPtr;                     // 需要LVal函数返回标识符对应的值
 bool LVal_retValue;                   // 需要LVal函数返回标识符对应的指针
+bool func_block;                      // 指示FuncDef调用的block函数
+//  To be done :这里进入FuncDef 需要把func_ret置0， 离开FuncDef时需要判断， 如果是在int main里面且没有return， 需要补充返回0。
+bool func_ret;                        // 指示当前函数是否有返回标识
 Ptr<Value> latest_value = nullptr;    // 指示当前最近处理的表达式的值
 Ptr<Value> latest_ptr   = nullptr;    // 指示当前最近处理的标识符的指针
+//  To be done :这里进入FuncDef 需要用tmpAlloc暂存retAlloc, 然后把retAlloc置为nullptr， returnstmt会把返回值存在retAlloc里再取出来返回，
+//      离开FuncDef 的时候需要用tmpAlloc复原原本的retAlloc的值。 
+Ptr<Value> retAlloc     = nullptr;    // FuncDef为返回值alloc的空间。
 Ptr<BasicBlock> CondBB = nullptr;     // 指示当前while语句的条件基本块
 Ptr<BasicBlock> NextBB = nullptr;     // 指示当前while循环和if语句的下一个基本块
 Ptr<BasicBlock> TrueBB = nullptr;     // 指示当前条件判断的True分支基本块
 Ptr<BasicBlock> FalseBB = nullptr;    // 指示当前条件判断的False分支基本块
 Ptr<BasicBlock> CurrentBB = nullptr;  // 指示当前所处的基本块位置
+Ptr<BasicBlock> retBB   = nullptr;    // 指示函数返回值基本块的位置， 在retBB中统一处理函数返回。
 long BB_id = 0;                       // 创建的BB的 label ：格式为 "......BB_<BB_id>"
 Ptr<Function> CurrentFunction = nullptr; // 指示当前所处的函数
 
@@ -187,19 +194,19 @@ void IRBuilder::visit(SyntaxTree::AssignStmt &node) {
     auto ValueType = tmpValue->get_type();
     if(TargetType == INT32_T && ValueType == INT32_T) {
         //  赋值号两边都是int32， 直接store
-        builder->create_store(TargetPtr, tmpValue);
+        builder->create_store(tmpValue, TargetPtr);
         return;
     } else if(TargetType == FLOAT_T && ValueType == FLOAT_T) {
         //  赋值号两边都是float， 直接store
-        builder->create_store(TargetPtr, tmpValue);
+        builder->create_store(tmpValue, TargetPtr);
     } else if(TargetType == INT32_T && ValueType == FLOAT_T) {
         //  FLOAT 转 INT 再store
         auto fti_res = builder->create_fptosi(tmpValue, INT32_T);
-        builder->create_store(TargetPtr, tmpValue);
+        builder->create_store(fti_res, TargetPtr);
     } else if(TargetType == FLOAT_T && ValueType == INT32_T) {
         //  INT 转 FLOAT 再store
         auto itf_res = builder->create_sitofp(tmpValue, FLOAT_T);
-        builder->create_store(TargetPtr, tmpValue);
+        builder->create_store(itf_res, TargetPtr);
     } else {
         //  基本类型只能为int | float， 我们不考虑给变量赋布尔值的情况。
         throw UnreachableException();
@@ -225,24 +232,61 @@ void IRBuilder::visit(SyntaxTree::Literal &node) {
         break;
     }
 }
-
 //  这里也是同样， 我们将原本的visitee_val 替换成 latest_value
-//  To be done: 需要检查函数返回值类型和得到的ret参数类型是否一致， 如果不一致， 需要进行类型转换。
+//  一个基本块一个ret， 所以create_ret统一交给FuncDef处理
 void IRBuilder::visit(SyntaxTree::ReturnStmt &node) {
+    func_ret = 1;
+    auto curFun = this->cur_func;
+    //  存的cur_func是Ptr<Function> 类型， 里面内置了get_return_type函数用来获取返回值类型。
+    auto FuncRetType = curFun->get_return_type();
+
     if(node.ret == nullptr) {
+        if(FuncRetType != VOID_T) {
+            //  非 void 函数需要返回值
+            throw UnreachableException();
+        }
         //  void类型， 查了一下可以这么返回空。
-        builder->create_void_ret();
+        builder->create_br(retBB);
     } else {
         node.ret->accept(*this);
-        builder->create_ret(latest_value);
+        auto RetValueType = latest_value->get_type();
+        //  需要检查函数返回值类型和得到的ret参数类型是否一致， 如果不一致， 需要进行类型转换。
+        if(FuncRetType == INT32_T && RetValueType == INT32_T) {
+            builder->create_store(latest_value, retAlloc);
+        } else if(FuncRetType == FLOAT_T && RetValueType == FLOAT_T) {
+            //  赋值号两边都是float， 直接store
+            builder->create_store(latest_value, retAlloc);
+        } else if(FuncRetType == INT32_T && RetValueType == FLOAT_T) {
+            //  FLOAT 转 INT 再store
+            auto fti_res = builder->create_fptosi(latest_value, INT32_T);
+            builder->create_store(fti_res, retAlloc);
+        } else if(FuncRetType == FLOAT_T && RetValueType == INT32_T) {
+            //  INT 转 FLOAT 再store
+            auto itf_res = builder->create_sitofp(latest_value, FLOAT_T);
+            builder->create_store(itf_res, retAlloc);
+        } else {
+            //  基本类型只能为int | float， 我们不考虑给变量赋布尔值的情况。
+            throw UnreachableException();
+        }
+
+        builder->create_br(retBB);
     }
 }
 
-//  To be done: 等上个厕所回来改， 我想统一开新作用域的位置， 就是在调用者的位置开作用域。
-//          就比如函数就在FunDef开， 然后if和while在对应的stmt开， 等会儿回来去那边开一个， 这边block就不动了。
 void IRBuilder::visit(SyntaxTree::BlockStmt &node) {
-    for (auto stmt: node.body) {
-        stmt->accept(*this);
+    if(!func_block) {
+        //  Func的作用域在Func进， 其余的都在block进， 包括if， while和直接的大括号
+        scope.enter();
+        for (auto stmt: node.body) {
+            stmt->accept(*this);
+        }
+        scope.exit();
+    } else {
+        //  这里标识是FuncDef调用的block， 不需要进scope， 并且重置func_block， 防止后续stmt的block被误认。
+        func_block = false;
+        for (auto stmt: node.body) {
+            stmt->accept(*this);
+        }
     }
 }
 
