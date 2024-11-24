@@ -465,7 +465,6 @@ namespace SysYF
 
         void IRBuilder::visit(SyntaxTree::LVal &node)
         {
-            printf("2\n");
             //  在VarDef时需要将<name, Ptr<value> >一起压入当前作用域中。
 
             //  处理数组index的时候也可能调用LVal， 所以这里可能嵌套， 先保存全局变量的值。
@@ -488,7 +487,6 @@ namespace SysYF
                 {
                     //  这里说明调用者是调用的exp 函数，然后进入到LVal 进行表达式的求值。
                     //  我们需要先用Load 从指针中取出值， 再将值返回给调用者
-                    printf("1\n");
                     auto tmpValue = builder->create_load(tmpPtr);
                     latest_value = tmpValue;
                     return;
