@@ -367,6 +367,7 @@ namespace SysYF
                     if (node.btype == SyntaxTree::Type::INT) {
                         auto VarAlloca = builder->create_alloca(INT32_T);
                         if(node.is_inited) {
+                            LVal_retValue = 1;LVal_retPtr = 0;
                             node.initializers->accept(*this);
                             auto var_initializer = last_InitItem.expr;
                             assignVal(VarAlloca, var_initializer, builder);
@@ -422,13 +423,14 @@ namespace SysYF
 
         void IRBuilder::visit(SyntaxTree::LVal &node)
         {
+            printf("2\n");
             //  在VarDef时需要将<name, Ptr<value> >一起压入当前作用域中。
 
             //  处理数组index的时候也可能调用LVal， 所以这里可能嵌套， 先保存全局变量的值。
             auto tmp_LVal_retPtr = LVal_retPtr;
             auto tmp_LVal_retValue = LVal_retValue;
 
-            if (node.array_index.size() == 0)
+            if (node.array_index.empty())
             {
                 // Lval -> Ident
                 auto tmpPtr = scope.find(node.name, false);
@@ -443,7 +445,8 @@ namespace SysYF
                 else if (tmp_LVal_retValue)
                 {
                     //  这里说明调用者是调用的exp 函数，然后进入到LVal 进行表达式的求值。
-                    //  我们需要先用Load 从指针中取出值， 再将值返回给调用者。
+                    //  我们需要先用Load 从指针中取出值， 再将值返回给调用者
+                    printf("1\n");
                     auto tmpValue = builder->create_load(tmpPtr);
                     latest_value = tmpValue;
                     return;
@@ -513,14 +516,12 @@ namespace SysYF
         {
             //  处理表达式的左值， 得到的应该是指针
             //  设置左值返回值
-            LVal_retValue = 0;
-            LVal_retPtr = 1;
+            LVal_retValue = 0; LVal_retPtr = 1;
             node.target->accept(*this);
             auto TargetPtr = latest_ptr;
 
             //  获取右值， 访问exp， 过程中无论何时出现LVal 都直接返回值而不返回指针。
-            LVal_retValue = 1;
-            LVal_retPtr = 0;
+            LVal_retValue = 1; LVal_retPtr = 0;
             node.value->accept(*this);
             auto tmpValue = latest_value;
 
@@ -571,6 +572,7 @@ namespace SysYF
             }
             else
             {
+                LVal_retValue = 1; LVal_retPtr = 0;
                 node.ret->accept(*this);
                 auto RetValueType = latest_value->get_type();
                 //  需要检查函数返回值类型和得到的ret参数类型是否一致， 如果不一致， 需要进行类型转换。
@@ -694,6 +696,7 @@ namespace SysYF
                 Ptr<BasicBlock> RightBB_local = BasicBlock::create(module, BB_id_string, CurrentFunction);
                 // 左操作数的假分支为RightBB
                 FalseBB = RightBB_local;
+                LVal_retValue = 1;LVal_retPtr = 0;
                 node.lhs->accept(*this);
                 // 得到左边的 latest_value
                 // 可能不是bool类型，要先转成bool类型
@@ -721,6 +724,7 @@ namespace SysYF
                 // 插入 RightBB_local 的 label
                 builder->set_insert_point(RightBB_local);
                 // 继续访问右边
+                LVal_retValue = 1;LVal_retPtr = 0;
                 node.rhs->accept(*this);
                 // 得到lateet_value
                 // 可能不是bool类型，要先转成bool类型
