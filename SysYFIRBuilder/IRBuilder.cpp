@@ -533,6 +533,7 @@ namespace SysYF
                 //  Lval -> Ident[exp]
                 //  我们暂不考虑多维数组情况
                 auto tmpArray = scope.find(node.name, false);
+                auto tmpArrayType = tmpArray->get_type()->get_element_type();
 
                 //  处理数组下标
                 auto tmpIndex = node.array_index[0];
@@ -548,7 +549,7 @@ namespace SysYF
                 //  如果考虑到函数传参， 这里应该有两种tmpArray 的类型
                 //  如果函数传参 int a[] , 符号表里推的应该是 INT32PTR_T, 我们取gep的时候就应该直接取偏移量，
                 //    否则需要先用常数 0 进入数组第一维， 再取偏移量。
-                if (tmpArray->as<Ptr<PointerType>>())
+                if (tmpArrayType->is_pointer_type())
                 {
                     // 说明tmpArray 是pointer类型， 那么我们直接走偏移量
                     auto tmpPtr = builder->create_gep(tmpArray, {latest_value});
@@ -565,7 +566,7 @@ namespace SysYF
                         return;
                     }
                 }
-                else if (tmpArray->as<Ptr<ArrayType>>())
+                else if (tmpArrayType->is_array_type())
                 {
                     auto tmpPtr = builder->create_gep(tmpArray, {CONST_INT(0), latest_value});
                     if (tmp_LVal_retPtr)
