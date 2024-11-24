@@ -310,7 +310,7 @@ namespace SysYF
                             LVal_retPtr = 0; LVal_retValue = 1;
                             node.initializers->accept(*this);
                             auto var_initializer = last_InitItem.expr;
-                            if(node.is_const) {
+                            if(node.is_constant) {
                                 auto GlobalAlloca = GlobalVariable::create(node.name, module, INT32_T, true, std::dynamic_pointer_cast<ConstantInt>(var_initializer));
                                 scope.push(node.name, GlobalAlloca);
                             }
@@ -323,7 +323,7 @@ namespace SysYF
                             
                         } else {
                             auto zero_initializer = ConstantZero::create(INT32_T, module);
-                            if(node.is_const) {
+                            if(node.is_constant) {
                                 auto GlobalAlloca = GlobalVariable::create(node.name, module, INT32_T, true, zero_initializer);
                                 scope.push(node.name, GlobalAlloca);
                             }
@@ -341,14 +341,17 @@ namespace SysYF
                             LVal_retPtr = 0; LVal_retValue = 1;
                             node.initializers->accept(*this);
                             auto var_initializer = last_InitItem.expr;
-                            if(node.is_const) 
+                            if(node.is_constant){ 
                                 auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, true, std::dynamic_pointer_cast<ConstantInt>(var_initializer));
-                            else 
+                                scope.push(node.name, GlobalAlloca);
+                            }
+                            else{
                                 auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, false, std::dynamic_pointer_cast<ConstantInt>(var_initializer));
-                            scope.push(node.name, GlobalAlloca);
+                                scope.push(node.name, GlobalAlloca);
+                            }
                         } else {
                             auto zero_initializer = ConstantZero::create(FLOAT_T, module);
-                            if(node.is_const) {
+                            if(node.is_constant) {
                                 auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, true, zero_initializer);
                                 scope.push(node.name, GlobalAlloca);
                             }
@@ -376,7 +379,7 @@ namespace SysYF
                         if (node.btype == SyntaxTree::Type::INT) {
                             auto arrayType_num = ArrayType::get(INT32_T, Literal_Number);
                             auto array_initializer = ConstantArray::create(arrayType_num, init_val, module);
-                            if(node.is_const) {
+                            if(node.is_constant) {
                                 auto array = GlobalVariable::create(node.name, module, arrayType_num, true, array_initializer);//          是否是常量定义，初始化常量(ConstantZero类)
                                 scope.push(node.name, array);
                             }
@@ -389,7 +392,7 @@ namespace SysYF
                         else {
                             auto arrayType_num = ArrayType::get(FLOAT_T, Literal_Number);
                             auto array_initializer = ConstantArray::create(arrayType_num, init_val, module);    
-                            if(node.is_const) {
+                            if(node.is_constant) {
                                 auto array = GlobalVariable::create(node.name, module, arrayType_num, true, array_initializer);//          是否是常量定义，初始化常量(ConstantZero类)
                                 scope.push(node.name, array);
                             }
