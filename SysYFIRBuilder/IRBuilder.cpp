@@ -42,7 +42,6 @@ namespace SysYF
         long BB_id = 0;                      // 创建的BB的 label ：格式为 "......BB_<BB_id>"
         // to do ：在Fundef时需要将构造的fn赋给CurrentFunction，因为我后面BB的创建都是用的这个！！！！！！！！！
         Ptr<Function> CurrentFunction = nullptr; // 指示当前所处的函数
-        std::vector<int> indexList;              // 数组下标管理器（仅用于局部变量）
 
         void IRBuilder::visit(SyntaxTree::Assembly &node)
         {
@@ -249,7 +248,7 @@ namespace SysYF
                     dimension->accept(*this);
 
                     // 使用当前维度大小更新参数类型为数组类型
-                    paramType = ArrayType::get(paramType, static_cast<ConstantInt *>(latest_value)->get_value());
+                    paramType = ArrayType::get(paramType, static_cast<ConstantInt *>(latest_value.get())->get_value());
                 }
 
                 LVal_retValue = false;
@@ -259,126 +258,178 @@ namespace SysYF
             }
 
             // 将参数类型和参数名存入参数列表
-            Params->push_back(paramType);
-            Param_names->push_back(node.name);
-        }
+            Params.push_back(paramType);
+            Param_names.push_back(node.name);
 
-        void assignInitVal(
-            Ptr<AllocaInst> alloca,
-            Ptr<Type> lValType,
-            bool isConstant,
-            InitItem initVal,
-            Ptr<IRStmtBuilder> builder,
-            Ptr<Module> module)
-        {
-            // 仅支持数组值的初始化为常量
-            if (!initVal.isValue)
-            {
-                throw std::runtime_error("Array initialization must use literal values");
-            }
-
-            // 对局部变量进行赋值
-            if (alloca)
-            {
-                // 创建 GEP 指针
-                auto gep = builder->create_gep(alloca, {ConstantInt::get(0, module), ConstantInt::get(indexList[0], module)});
-                Assign(gep, initVal.expr, builder);
-            }
-
-            // 对全局变量初始化
-            if (isConstant)
-            {
-                auto constantValue = dynamic_cast<Constant *>(initVal.expr.get());
-                if (!constantValue)
-                {
-                    throw std::runtime_error("Global initialization must use literal constants");
-                }
-                // 存储初始化值
-                tmpforconst[indexList[0]] = constantValue;
-            }
-
-            // 更新下标
-            indexList[0]++;
         }
 
         //  To be done: 这个函数没有完成(所有初始化都没有做， 也没有考虑数组)， 只是实现了一个非常非常粗糙的版本用来测试后面的一些visit函数。
         void IRBuilder::visit(SyntaxTree::VarDef &node)
         {
-            auto name = node.name;
-
-            // 获取数组元素的基础类型
-            Ptr<Type> elementType = get_type(node.btype, false);
-
-            // 限制数组只能为一维，且长度必须为字面量
-            Ptr<Type> arrayType = elementType;
-            if (!node.array_length.empty())
-            {
-                if (node.array_length.size() > 1)
-                {
-                    throw std::runtime_error("Only one-dimensional arrays are supported");
-                }
-
-                auto lengthExpr = node.array_length[0];
-                LVal_retValue = true;
-                lengthExpr->accept(*this);
-                LVal_retValue = false;
-
-                auto constantLength = dynamic_cast<ConstantInt *>(latest_value.get());
-                if (!constantLength)
-                {
-                    throw std::runtime_error("Array length must be a literal number");
-                }
-                arrayType = ArrayType::get(elementType, constantLength->get_value());
-            }
-
-            // 全局变量声明
             if (scope.in_global())
             {
-                Ptr<GlobalVariable> globalVar;
-                if (node.is_inited)
+                if (node.btype == SyntaxTree::Type::INT)
                 {
-                    // 检查初始化值
-                    LVal_retValue = true;
-                    node.initializers->accept(*this);
-                    LVal_retValue = false;
-
-                    assignInitVal(nullptr, arrayType, true, recentInitItem, builder, module);
-                    globalVar = GlobalVariable::create(name, module, arrayType, node.is_constant, parseConst(0, 0, arrayType));
+                    auto zero_initializer = ConstantZero::create(INT32_T, module);
+                    auto GlobalAlloca = GlobalVariable::create(node.name, module, INT32_T, false, zero_initializer);
+                    scope.push(node.name, GlobalAlloca);
                 }
                 else
                 {
-                    // 未初始化，全局数组默认值为零
-                    globalVar = GlobalVariable::create(name, module, arrayType, node.is_constant, ConstantZero::get(arrayType, module));
-                }
-                scope.push(name, globalVar);
-
-                // 如果是常量，插入常量表
-                if (node.is_constant)
-                {
-                    Insert(name, globalVar->get_init());
+                    auto zero_initializer = ConstantZero::create(FLOAT_T, module);
+                    auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, false, zero_initializer);
+                    scope.push(node.name, GlobalAlloca);
                 }
             }
-            // 局部变量声明
             else
             {
-                // 局部变量分配空间
-                Ptr<AllocaInst> alloca = builder->create_alloca(arrayType);
-                scope.push(name, alloca);
-
-                if (node.is_inited)
+                if (node.btype == SyntaxTree::Type::INT)
                 {
-                    LVal_retValue = node.is_constant;
-                    node.initializers->accept(*this);
-                    LVal_retValue = false;
+                    auto VarAlloca = builder->create_alloca(INT32_T);
+                    scope.push(node.name, VarAlloca);
+                }
+                else
+                {
+                    auto VarAlloca = builder->create_alloca(FLOAT_T);
+                    scope.push(node.name, VarAlloca);
+                }
+            }
+        }
 
-                    indexList.clear();
-                    indexList.push_back(0); // 一维数组下标初始化
-                    assignInitVal(alloca, arrayType, node.is_constant, recentInitItem, builder, module);
-                    if (node.is_constant)
+        void IRBuilder::visit(SyntaxTree::LVal &node)
+        {
+            //  在VarDef时需要将<name, Ptr<value> >一起压入当前作用域中。
+
+            //  处理数组index的时候也可能调用LVal， 所以这里可能嵌套， 先保存全局变量的值。
+            auto tmp_LVal_retPtr = LVal_retPtr;
+            auto tmp_LVal_retValue = LVal_retValue;
+
+            if (node.array_index.size() == 0)
+            {
+                // Lval -> Ident
+                auto tmpPtr = scope.find(node.name, false);
+                //  需要保持Lval_retPtr 和 LVal_retValue 只有一个为1， 后面我会检查其他函数的情况
+                if (tmp_LVal_retPtr)
+                {
+                    //  这里说明调用者希望返回一个表达式左值， 我们需要返回的是对应标识符的指针，方便调用者进行赋值。
+                    //  在压栈的时候压的Ptr<value> 是alloc的空间， 也就是说这里本身作用域里储存的就是指针。
+                    latest_ptr = tmpPtr;
+                    return;
+                }
+                else if (tmp_LVal_retValue)
+                {
+                    //  这里说明调用者是调用的exp 函数，然后进入到LVal 进行表达式的求值。
+                    //  我们需要先用Load 从指针中取出值， 再将值返回给调用者。
+                    auto tmpValue = builder->create_load(tmpPtr);
+                    latest_value = tmpValue;
+                    return;
+                }
+            }
+            else
+            {
+                //  Lval -> Ident[exp]
+                //  我们暂不考虑多维数组情况
+                auto tmpArray = scope.find(node.name, false);
+
+                //  处理数组下标
+                auto tmpIndex = node.array_index[0];
+                tmpIndex->accept(*this);
+                //  latest_value 就是数组下标的值。
+                auto IndexType = latest_value->get_type();
+                if (IndexType == FLOAT_T)
+                {
+                    throw UnreachableException();
+                    return;
+                }
+
+                //  如果考虑到函数传参， 这里应该有两种tmpArray 的类型
+                //  如果函数传参 int a[] , 符号表里推的应该是 INT32PTR_T, 我们取gep的时候就应该直接取偏移量，
+                //    否则需要先用常数 0 进入数组第一维， 再取偏移量。
+                if (tmpArray->as<Ptr<PointerType>>())
+                {
+                    // 说明tmpArray 是pointer类型， 那么我们直接走偏移量
+                    auto tmpPtr = builder->create_gep(tmpArray, {latest_value});
+                    if (tmp_LVal_retPtr)
                     {
-                        Insert(name, parseConst(0, 0, arrayType));
+                        //  这里和单标识符一样了
+                        latest_ptr = tmpPtr;
+                        return;
+                    }
+                    else if (tmp_LVal_retValue)
+                    {
+                        auto tmpValue = builder->create_load(latest_value);
+                        latest_value = tmpValue;
+                        return;
                     }
                 }
+                else if (tmpArray->as<Ptr<ArrayType>>())
+                {
+                    auto tmpPtr = builder->create_gep(tmpArray, {CONST_INT(0), latest_value});
+                    if (tmp_LVal_retPtr)
+                    {
+                        //  这里和单标识符一样了
+                        latest_ptr = tmpPtr;
+                        return;
+                    }
+                    else if (tmp_LVal_retValue)
+                    {
+                        auto tmpValue = builder->create_load(latest_value);
+                        latest_value = tmpValue;
+                        return;
+                    }
+                }
+            }
+
+            LVal_retPtr = tmp_LVal_retPtr;
+            LVal_retValue = tmp_LVal_retValue;
+        }
+
+        //  如果测试时这里出现问题请告诉我
+        void IRBuilder::visit(SyntaxTree::AssignStmt &node)
+        {
+            //  处理表达式的左值， 得到的应该是指针
+            //  设置左值返回值
+            LVal_retValue = 0;
+            LVal_retPtr = 1;
+            node.target->accept(*this);
+            auto TargetPtr = latest_ptr;
+
+            //  获取右值， 访问exp， 过程中无论何时出现LVal 都直接返回值而不返回指针。
+            LVal_retValue = 1;
+            LVal_retPtr = 0;
+            node.value->accept(*this);
+            auto tmpValue = latest_value;
+
+            //  TargetPtr, tmpValue 基类都是 Ptr<value>， 我们需要确定赋值号左右类型匹配。
+            auto TargetType = TargetPtr->get_type()->get_pointer_element_type();
+            auto ValueType = tmpValue->get_type();
+            if (TargetType == INT32_T && ValueType == INT32_T)
+            {
+                //  赋值号两边都是int32， 直接store
+                builder->create_store(tmpValue, TargetPtr);
+                return;
+            }
+            else if (TargetType == FLOAT_T && ValueType == FLOAT_T)
+            {
+                //  赋值号两边都是float， 直接store
+                builder->create_store(tmpValue, TargetPtr);
+            }
+            else if (TargetType == INT32_T && ValueType == FLOAT_T)
+            {
+                //  FLOAT 转 INT 再store
+                auto fti_res = builder->create_fptosi(tmpValue, INT32_T);
+                builder->create_store(fti_res, TargetPtr);
+            }
+            else if (TargetType == FLOAT_T && ValueType == INT32_T)
+            {
+                //  INT 转 FLOAT 再store
+                auto itf_res = builder->create_sitofp(tmpValue, FLOAT_T);
+                builder->create_store(itf_res, TargetPtr);
+            }
+            else
+            {
+                //  基本类型只能为int | float， 我们不考虑给变量赋布尔值的情况。
+                throw UnreachableException();
             }
         }
 
