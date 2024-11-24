@@ -341,12 +341,15 @@ namespace SysYF
                             LVal_retPtr = 0; LVal_retValue = 1;
                             node.initializers->accept(*this);
                             auto var_initializer = last_InitItem.expr;
+                            if(std::dynamic_pointer_cast<ConstantInt>(var_initializer)) {
+                                var_initializer = CONST_FLOAT(Literal_Number);
+                            }
                             if(node.is_constant){ 
-                                auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, true, std::dynamic_pointer_cast<ConstantInt>(var_initializer));
+                                auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, true, std::dynamic_pointer_cast<ConstantFloat>(var_initializer));
                                 scope.push(node.name, GlobalAlloca);
                             }
                             else{
-                                auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, false, std::dynamic_pointer_cast<ConstantInt>(var_initializer));
+                                auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, false, std::dynamic_pointer_cast<ConstantFloat>(var_initializer));
                                 scope.push(node.name, GlobalAlloca);
                             }
                         } else {
