@@ -377,7 +377,7 @@ namespace SysYF
                             init_val.emplace_back(std::dynamic_pointer_cast<Constant>(item.expr));
                         }
                         if (node.btype == SyntaxTree::Type::INT) {
-                            auto arrayType_num = ArrayType::get(INT32_T, Literal_Number);
+                            auto arrayType_num = ArrayType::get(INT32_T, arrayLenghtLiteral);
                             auto array_initializer = ConstantArray::create(arrayType_num, init_val, module);
                             if(node.is_constant) {
                                 auto array = GlobalVariable::create(node.name, module, arrayType_num, true, array_initializer);//          是否是常量定义，初始化常量(ConstantZero类)
@@ -390,7 +390,7 @@ namespace SysYF
                             
                         }
                         else {
-                            auto arrayType_num = ArrayType::get(FLOAT_T, Literal_Number);
+                            auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
                             auto array_initializer = ConstantArray::create(arrayType_num, init_val, module);    
                             if(node.is_constant) {
                                 auto array = GlobalVariable::create(node.name, module, arrayType_num, true, array_initializer);//          是否是常量定义，初始化常量(ConstantZero类)
@@ -443,7 +443,7 @@ namespace SysYF
                             init_val.emplace_back(std::dynamic_pointer_cast<Constant>(item.expr));
                         }
                         if (node.btype == SyntaxTree::Type::INT) {
-                            auto arrayType_num = ArrayType::get(INT32_T, Literal_Number);
+                            auto arrayType_num = ArrayType::get(INT32_T, arrayLenghtLiteral);
                             auto array = builder->create_alloca(arrayType_num); //          是否是常量定义，初始化常量(ConstantZero类)
                             for(int i = 0; i < init_val.size(); ++i) {
                                 auto InitAlloca = builder->create_gep(array, {CONST_INT(0), CONST_INT(i)});
@@ -452,7 +452,7 @@ namespace SysYF
                             scope.push(node.name, array);
                         }
                         else {
-                            auto arrayType_num = ArrayType::get(FLOAT_T, Literal_Number);
+                            auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
                             auto array = builder->create_alloca(arrayType_num); //          是否是常量定义，初始化常量(ConstantZero类)
                             for(int i = 0; i < init_val.size(); ++i) {
                                 auto InitAlloca = builder->create_gep(array, {CONST_INT(0), CONST_INT(i)});
