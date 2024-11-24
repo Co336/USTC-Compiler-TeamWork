@@ -40,6 +40,7 @@ namespace SysYF
         Ptr<BasicBlock> CurrentBB = nullptr; // 指示当前所处的基本块位置
         Ptr<BasicBlock> retBB = nullptr;     // 指示函数返回值基本块的位置， 在retBB中统一处理函数返回。
         long BB_id = 0;                      // 创建的BB的 label ：格式为 "......BB_<BB_id>"
+        int Literal_Number;
         // to do ：在Fundef时需要将构造的fn赋给CurrentFunction，因为我后面BB的创建都是用的这个！！！！！！！！！
         Ptr<Function> CurrentFunction = nullptr; // 指示当前所处的函数
 
@@ -69,6 +70,42 @@ namespace SysYF
         } InitItem;
 
         InitItem last_InitItem; // 存最近生成的初始化项，作为遍历和构造递归结构时的中间结果
+
+        
+        void assignVal(Ptr<Value> TargetPtr, Ptr<Value> tmpValue, Ptr<IRStmtBuilder> builder) {
+            //  TargetPtr, tmpValue 基类都是 Ptr<value>， 我们需要确定赋值号左右类型匹配。
+            auto TargetType = TargetPtr->get_type()->get_pointer_element_type();
+            auto ValueType = tmpValue->get_type();
+            if (TargetType == INT32_T && ValueType == INT32_T)
+            {
+                //  赋值号两边都是int32， 直接store
+                builder->create_store(tmpValue, TargetPtr);
+                return;
+            }
+            else if (TargetType == FLOAT_T && ValueType == FLOAT_T)
+            {
+                //  赋值号两边都是float， 直接store
+                builder->create_store(tmpValue, TargetPtr);
+            }
+            else if (TargetType == INT32_T && ValueType == FLOAT_T)
+            {
+                //  FLOAT 转 INT 再store
+                auto fti_res = builder->create_fptosi(tmpValue, INT32_T);
+                builder->create_store(fti_res, TargetPtr);
+            }
+            else if (TargetType == FLOAT_T && ValueType == INT32_T)
+            {
+                //  INT 转 FLOAT 再store
+                auto itf_res = builder->create_sitofp(tmpValue, FLOAT_T);
+                builder->create_store(itf_res, TargetPtr);
+            }
+            else
+            {
+                //  基本类型只能为int | float， 我们不考虑给变量赋布尔值的情况。
+                throw UnreachableException();
+            }
+        }
+
 
         Ptr<Type> get_type(SyntaxTree::Type type, bool is_pointer)
         { // 不知道会不会和gettype()冲突？
@@ -263,36 +300,123 @@ namespace SysYF
 
         }
 
+        
         //  To be done: 这个函数没有完成(所有初始化都没有做， 也没有考虑数组)， 只是实现了一个非常非常粗糙的版本用来测试后面的一些visit函数。
-        void IRBuilder::visit(SyntaxTree::VarDef &node)
-        {
-            if (scope.in_global())
-            {
-                if (node.btype == SyntaxTree::Type::INT)
-                {
-                    auto zero_initializer = ConstantZero::create(INT32_T, module);
-                    auto GlobalAlloca = GlobalVariable::create(node.name, module, INT32_T, false, zero_initializer);
-                    scope.push(node.name, GlobalAlloca);
+        void IRBuilder::visit(SyntaxTree::VarDef &node) {
+            if (scope.in_global()) {
+                if(node.array_length.empty()) {
+                    if (node.btype == SyntaxTree::Type::INT) {
+                        if(node.is_inited) { 
+                            LVal_retPtr = 0; LVal_retValue = 1;
+                            node.initializers->accept(*this);
+                            auto var_initializer = last_InitItem.expr;
+                            auto GlobalAlloca = GlobalVariable::create(node.name, module, INT32_T, false, std::dynamic_pointer_cast<ConstantInt>(var_initializer));
+                            scope.push(node.name, GlobalAlloca);
+                        } else {
+                            auto zero_initializer = ConstantZero::create(INT32_T, module);
+                            auto GlobalAlloca = GlobalVariable::create(node.name, module, INT32_T, false, zero_initializer);
+                            scope.push(node.name, GlobalAlloca);
+                        }
+                    }
+                    else {
+                        if(node.is_inited) { 
+                            LVal_retPtr = 0; LVal_retValue = 1;
+                            node.initializers->accept(*this);
+                            auto var_initializer = last_InitItem.expr;
+                            auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, false, std::dynamic_pointer_cast<ConstantInt>(var_initializer));
+                            scope.push(node.name, GlobalAlloca);
+                        } else {
+                            auto zero_initializer = ConstantZero::create(FLOAT_T, module);
+                            auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, false, zero_initializer);
+                            scope.push(node.name, GlobalAlloca);
+                        }
+                    }
                 }
-                else
-                {
-                    auto zero_initializer = ConstantZero::create(FLOAT_T, module);
-                    auto GlobalAlloca = GlobalVariable::create(node.name, module, FLOAT_T, false, zero_initializer);
-                    scope.push(node.name, GlobalAlloca);
+                else {
+                    LVal_retPtr = 0; LVal_retValue = 1;
+
+                    node.array_length[0]->accept(*this);
+                    auto arrayLength = latest_value;
+                    auto arrayLenghtLiteral = Literal_Number;
+                    std::vector<Ptr<Constant> > init_val;
+
+                    if(node.is_inited) {
+                        node.initializers->accept(*this);
+                        for(auto item : last_InitItem.list) {
+                            LVal_retValue = 1; LVal_retPtr = 0;
+                            init_val.emplace_back(std::dynamic_pointer_cast<Constant>(item.expr));
+                        }
+                        if (node.btype == SyntaxTree::Type::INT) {
+                            auto arrayType_num = ArrayType::get(INT32_T, Literal_Number);
+                            auto array_initializer = ConstantArray::create(arrayType_num, init_val, module);
+                            auto array = GlobalVariable::create(node.name, module, arrayType_num, false, array_initializer);//          是否是常量定义，初始化常量(ConstantZero类)
+                            scope.push(node.name, array);
+                        }
+                        else {
+                            auto arrayType_num = ArrayType::get(FLOAT_T, Literal_Number);
+                            auto array_initializer = ConstantArray::create(arrayType_num, init_val, module);    
+                            auto array = GlobalVariable::create(node.name, module, arrayType_num, false, array_initializer);//          是否是常量定义，初始化常量(ConstantZero类)
+                            scope.push(node.name, array);
+                        }
+                    }
                 }
             }
             else
             {
-                if (node.btype == SyntaxTree::Type::INT)
-                {
-                    auto VarAlloca = builder->create_alloca(INT32_T);
-                    scope.push(node.name, VarAlloca);
+                if(node.array_length.empty()) {
+                    if (node.btype == SyntaxTree::Type::INT) {
+                        auto VarAlloca = builder->create_alloca(INT32_T);
+                        if(node.is_inited) {
+                            node.initializers->accept(*this);
+                            auto var_initializer = last_InitItem.expr;
+                            assignVal(VarAlloca, var_initializer, builder);
+                        }
+                        scope.push(node.name, VarAlloca);
+                    }
+                    else {
+                        auto VarAlloca = builder->create_alloca(FLOAT_T);
+                        if(node.is_inited) {
+                            node.initializers->accept(*this);
+                            auto var_initializer = last_InitItem.expr;
+                            assignVal(VarAlloca, var_initializer, builder);
+                        }
+                        scope.push(node.name, VarAlloca);
+                    }
                 }
-                else
-                {
-                    auto VarAlloca = builder->create_alloca(FLOAT_T);
-                    scope.push(node.name, VarAlloca);
+                else {
+                    LVal_retPtr = 0; LVal_retValue = 1;
+                    node.array_length[0]->accept(*this);
+                    auto arrayLength = latest_value;
+                    auto arrayLenghtLiteral = Literal_Number;
+                    std::vector<Ptr<Constant> > init_val;
+
+                    if(node.is_inited) {
+                        node.initializers->accept(*this);
+                        for(auto item : last_InitItem.list) {
+                            LVal_retValue = 1; LVal_retPtr = 0;
+                            init_val.emplace_back(std::dynamic_pointer_cast<Constant>(item.expr));
+                        }
+                        if (node.btype == SyntaxTree::Type::INT) {
+                            auto arrayType_num = ArrayType::get(INT32_T, Literal_Number);
+                            auto array = builder->create_alloca(arrayType_num); //          是否是常量定义，初始化常量(ConstantZero类)
+                            for(int i = 0; i < init_val.size(); ++i) {
+                                auto InitAlloca = builder->create_gep(array, {CONST_INT(0), CONST_INT(i)});
+                                assignVal(InitAlloca, init_val[i], builder);
+                            }
+                            scope.push(node.name, array);
+                        }
+                        else {
+                            auto arrayType_num = ArrayType::get(FLOAT_T, Literal_Number);
+                            auto array = builder->create_alloca(arrayType_num); //          是否是常量定义，初始化常量(ConstantZero类)
+                            for(int i = 0; i < init_val.size(); ++i) {
+                                auto InitAlloca = builder->create_gep(array, {CONST_INT(0), CONST_INT(i)});
+                                assignVal(InitAlloca, init_val[i], builder);
+                            }
+                            scope.push(node.name, array);
+                        }
+                    }
                 }
+                
             }
         }
 
@@ -400,37 +524,7 @@ namespace SysYF
             node.value->accept(*this);
             auto tmpValue = latest_value;
 
-            //  TargetPtr, tmpValue 基类都是 Ptr<value>， 我们需要确定赋值号左右类型匹配。
-            auto TargetType = TargetPtr->get_type()->get_pointer_element_type();
-            auto ValueType = tmpValue->get_type();
-            if (TargetType == INT32_T && ValueType == INT32_T)
-            {
-                //  赋值号两边都是int32， 直接store
-                builder->create_store(tmpValue, TargetPtr);
-                return;
-            }
-            else if (TargetType == FLOAT_T && ValueType == FLOAT_T)
-            {
-                //  赋值号两边都是float， 直接store
-                builder->create_store(tmpValue, TargetPtr);
-            }
-            else if (TargetType == INT32_T && ValueType == FLOAT_T)
-            {
-                //  FLOAT 转 INT 再store
-                auto fti_res = builder->create_fptosi(tmpValue, INT32_T);
-                builder->create_store(fti_res, TargetPtr);
-            }
-            else if (TargetType == FLOAT_T && ValueType == INT32_T)
-            {
-                //  INT 转 FLOAT 再store
-                auto itf_res = builder->create_sitofp(tmpValue, FLOAT_T);
-                builder->create_store(itf_res, TargetPtr);
-            }
-            else
-            {
-                //  基本类型只能为int | float， 我们不考虑给变量赋布尔值的情况。
-                throw UnreachableException();
-            }
+            assignVal(TargetPtr, tmpValue, builder);
         }
 
         //  因为我们开全局变量返回， 所以原本的visitee_val我替换成了latest_value
@@ -442,6 +536,7 @@ namespace SysYF
             {
                 //  change from visitee_val to latest_value
                 latest_value = CONST_INT(node.int_const);
+                Literal_Number = node.int_const;
                 break;
             }
             case SyntaxTree::Type::FLOAT:
