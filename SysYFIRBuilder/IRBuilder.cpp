@@ -460,7 +460,7 @@ namespace SysYF
         void IRBuilder::visit(SyntaxTree::ReturnStmt &node)
         {
             func_ret = 1;
-            auto curFun = this->cur_func;
+            auto curFun = CurrentFunction;
             //  存的cur_func是Ptr<Function> 类型， 里面内置了get_return_type函数用来获取返回值类型。
             auto FuncRetType = curFun->get_return_type();
 
@@ -923,14 +923,44 @@ namespace SysYF
             }
             else
             {
-                // 有变量，则发射指令
-                // 左右的类型可能不一样，要先进行类型转换
-                if (l_value_temp->get_type() == INT32_T && r_value_temp->get_type() == FLOAT_T)
+                // 先进行类型转换，再进行比较
+                // 这里可能会有INT1_T类型的存在，需要考虑多种情况
+                if (l_value_temp->get_type() == INT1_T && r_value_temp->get_type() == INT1_T)
                 {
+                    // 均扩展到INT32_T再进行比较
+                    l_value_temp = builder->create_zext(l_value_temp, INT32_T);
+                    r_value_temp = builder->create_zext(r_value_temp, INT32_T);
+                }
+                else if (l_value_temp->get_type() == INT1_T && r_value_temp->get_type() == INT32_T)
+                {
+                    // 将l扩展到32
+                    l_value_temp = builder->create_zext(l_value_temp, INT32_T);
+                }
+                else if (l_value_temp->get_type() == INT32_T && r_value_temp->get_type() == INT1_T)
+                {
+                    // 将r扩展到32
+                    r_value_temp = builder->create_zext(r_value_temp, INT32_T);
+                }
+                else if (l_value_temp->get_type() == INT1_T && r_value_temp->get_type() == FLOAT_T)
+                {
+                    // 将l变为FLOAT
+                    l_value_temp = builder->create_zext(l_value_temp, INT32_T);
                     l_value_temp = builder->create_sitofp(l_value_temp, FLOAT_T);
                 }
-                else if (r_value_temp->get_type() == INT32_T && l_value_temp->get_type() == FLOAT_T)
+                else if (l_value_temp->get_type() == FLOAT_T && r_value_temp->get_type() == INT1_T)
                 {
+                    // 将r变为FLOAT
+                    r_value_temp = builder->create_zext(r_value_temp, INT32_T);
+                    r_value_temp = builder->create_sitofp(r_value_temp, FLOAT_T);
+                }
+                else if (l_value_temp->get_type() == INT32_T && r_value_temp->get_type() == FLOAT_T)
+                {
+                    // 将l变为FLOAT
+                    l_value_temp = builder->create_sitofp(l_value_temp, FLOAT_T);
+                }
+                else if (l_value_temp->get_type() == FLOAT_T && r_value_temp->get_type() == INT32_T)
+                {
+                    // 将r变为FLOAT
                     r_value_temp = builder->create_sitofp(r_value_temp, FLOAT_T);
                 }
 
@@ -1014,6 +1044,11 @@ namespace SysYF
             }
             else
             {
+                // 如果是INT1 需要先转成INT32
+                if(value_temp->get_type() == INT1_T)
+                {
+                    value_temp = builder->create_zext(value_temp, INT32_T);
+                }
                 // 右操作数不是常数
                 if (node.op == SyntaxTree::UnaryOp::PLUS)
                 {
@@ -1080,7 +1115,8 @@ namespace SysYF
             // 由于if可能是嵌套的，所以在进入一次此函数时需要将与if有关的全局变量暂存，退出时再恢复
             // 这样能保证全局变量一直指示的是当前信息
             // 暂存全局变量
-            std::tuple<Ptr<BasicBlock>, Ptr<BasicBlock>, Ptr<BasicBlock>> temp_BBs = std::make_tuple(TrueBB, FalseBB, NextBB);
+            // NextBB不能使用全局变量
+            std::tuple<Ptr<BasicBlock>, Ptr<BasicBlock>> temp_BBs = std::make_tuple(TrueBB, FalseBB);
             // 创建此if相关的基本块
             std::string BB_id_string;
             BB_id_string = "TrueBB";
@@ -1089,17 +1125,18 @@ namespace SysYF
             BB_id_string = "FalseBB";
             BB_id_string += std::to_string(BB_id++);
             FalseBB = BasicBlock::create(module, BB_id_string, CurrentFunction);
+            Ptr<BasicBlock> NextBB_local;
             if (!node.else_statement)
             { // 看是否有else分支，这里是没有
               // 没有则FalseBB和NextBB相同
-                NextBB = FalseBB;
+                NextBB_local = FalseBB;
             }
             else
             {
                 // 重新创建NextBB
                 BB_id_string = "NextBB";
                 BB_id_string += std::to_string(BB_id++);
-                NextBB = BasicBlock::create(module, BB_id_string, CurrentFunction);
+                NextBB_local = BasicBlock::create(module, BB_id_string, CurrentFunction);
             }
 
             // 递归访问 AST 上 ifstmt 中的 cond_exp
@@ -1131,7 +1168,7 @@ namespace SysYF
             // 是不是终止指令（如ret），不是才需要加br
             if (!CurrentBB->get_terminator())
             {
-                latest_value = builder->create_br(NextBB);
+                latest_value = builder->create_br(NextBB_local);
             }
             // 处理 else 分支
             if (node.else_statement != nullptr)
@@ -1145,17 +1182,16 @@ namespace SysYF
                 // 是不是终止指令（如ret），不是才需要加br
                 if (!CurrentBB->get_terminator())
                 {
-                    latest_value = builder->create_br(NextBB);
+                    latest_value = builder->create_br(NextBB_local);
                 }
             }
             // 当前所处块变为 NextBB
-            CurrentBB = NextBB;
+            CurrentBB = NextBB_local;
             // 插入 NextBB 的 label
-            builder->set_insert_point(NextBB);
+            builder->set_insert_point(NextBB_local);
             // 退出此if，需要恢复之前暂存的全局变量
             TrueBB = std::get<0>(temp_BBs);
             FalseBB = std::get<1>(temp_BBs);
-            NextBB = std::get<2>(temp_BBs);
         }
 
         void IRBuilder::visit(SyntaxTree::WhileStmt &node)
