@@ -1159,6 +1159,7 @@ namespace SysYF
             { // 是空类型则说明cond_br已经生成过了
                 latest_value = builder->create_cond_br(latest_value, TrueBB, FalseBB);
             }
+            bool NextBB_Avaiable = false;
             // 当前所处块变为 TrueBB
             CurrentBB = TrueBB;
             // 插入 TrueBB 的 label
@@ -1168,6 +1169,7 @@ namespace SysYF
             // 是不是终止指令（如ret），不是才需要加br
             if (!CurrentBB->get_terminator())
             {
+                NextBB_Avaiable = true;
                 latest_value = builder->create_br(NextBB_local);
             }
             // 处理 else 分支
@@ -1182,13 +1184,20 @@ namespace SysYF
                 // 是不是终止指令（如ret），不是才需要加br
                 if (!CurrentBB->get_terminator())
                 {
+                    NextBB_Avaiable = true;
                     latest_value = builder->create_br(NextBB_local);
                 }
             }
-            // 当前所处块变为 NextBB
-            CurrentBB = NextBB_local;
-            // 插入 NextBB 的 label
-            builder->set_insert_point(NextBB_local);
+            if (NextBB_Avaiable || !node.else_statement)
+            {    // 当前所处块变为 NextBB
+                CurrentBB = NextBB_local;
+                // 插入 NextBB 的 label
+                builder->set_insert_point(NextBB_local);
+            }
+            else
+            {
+                NextBB_local->erase_from_parent();
+            }
             // 退出此if，需要恢复之前暂存的全局变量
             TrueBB = std::get<0>(temp_BBs);
             FalseBB = std::get<1>(temp_BBs);
