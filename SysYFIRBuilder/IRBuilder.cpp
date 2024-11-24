@@ -387,7 +387,6 @@ namespace SysYF
                                 auto array = GlobalVariable::create(node.name, module, arrayType_num, false, array_initializer);
                                 scope.push(node.name, array);
                             }
-                            
                         }
                         else {
                             auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
@@ -402,12 +401,31 @@ namespace SysYF
                             }
                         }
                     } else {
-
+                        if (node.btype == SyntaxTree::Type::INT) {
+                            auto zero_initializer = ConstantZero::create(INT32_T, module);
+                            auto arrayType_num = ArrayType::get(INT32_T, arrayLenghtLiteral);
+                            if(node.is_constant) {
+                                auto array = GlobalVariable::create(node.name, module, arrayType_num, true, zero_initializer);// 参数解释：  名字name，所属module，全局变量类型type，
+                                scope.push(node.name, array);
+                            } else {
+                                auto array = GlobalVariable::create(node.name, module, arrayType_num, false, zero_initializer);// 参数解释：  名字name，所属module，全局变量类型type，
+                                scope.push(node.name, array);
+                            }
+                        } else {
+                            auto zero_initializer = ConstantZero::create(FLOAT_T, module);
+                            auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
+                            if(node.is_constant) {
+                                auto array = GlobalVariable::create(node.name, module, arrayType_num, true, zero_initializer);// 参数解释：  名字name，所属module，全局变量类型type，
+                                scope.push(node.name, array);
+                            } else {
+                                auto array = GlobalVariable::create(node.name, module, arrayType_num, false, zero_initializer);// 参数解释：  名字name，所属module，全局变量类型type，
+                                scope.push(node.name, array);
+                            }
+                        }
                     }
                 }
             }
-            else
-            {
+            else {
                 if(node.array_length.empty()) {
                     if (node.btype == SyntaxTree::Type::INT) {
                         auto VarAlloca = builder->create_alloca(INT32_T);
@@ -458,6 +476,18 @@ namespace SysYF
                                 auto InitAlloca = builder->create_gep(array, {CONST_INT(0), CONST_INT(i)});
                                 assignVal(InitAlloca, init_val[i], builder);
                             }
+                            scope.push(node.name, array);
+                        }
+                    } else {
+                        if (node.btype == SyntaxTree::Type::INT) {
+                            auto zero_initializer = ConstantZero::create(INT32_T, module);
+                            auto arrayType_num = ArrayType::get(INT32_T, arrayLenghtLiteral);
+                            auto array = builder->create_alloca(arrayType_num);
+                            scope.push(node.name, array);
+                        } else {
+                            auto zero_initializer = ConstantZero::create(FLOAT_T, module);
+                            auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
+                            auto array = builder->create_alloca(arrayType_num);
                             scope.push(node.name, array);
                         }
                     }
