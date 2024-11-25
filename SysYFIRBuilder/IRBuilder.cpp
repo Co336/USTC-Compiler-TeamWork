@@ -1314,6 +1314,7 @@ namespace SysYF
             auto index = 0;
             for (auto &arg : node.params)
             {
+                LVal_retValue = 1; LVal_retPtr = 0;
                 arg->accept(*this);
                 // latest_value得到实参的信息
                 if (func_params[index]->get_type() == FLOAT_T && latest_value->get_type() == INT32_T)
