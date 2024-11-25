@@ -395,6 +395,9 @@ namespace SysYF
                         }
                         if (node.btype == SyntaxTree::Type::INT) {
                             auto arrayType_num = ArrayType::get(INT32_T, arrayLenghtLiteral);
+                            for(int i = (int)last_InitItem.list.size(); i < arrayLenghtLiteral; ++i) {
+                                init_val.emplace_back(CONST_INT(0));
+                            }
                             auto array_initializer = ConstantArray::create(arrayType_num, init_val, module);
                             if(node.is_constant) {
                                 auto array = GlobalVariable::create(node.name, module, arrayType_num, true, array_initializer);//          是否是常量定义，初始化常量(ConstantZero类)
@@ -407,6 +410,9 @@ namespace SysYF
                         }
                         else {
                             auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
+                            for(int i = (int)last_InitItem.list.size(); i < arrayLenghtLiteral; ++i) {
+                                init_val.emplace_back(CONST_FLOAT(0));
+                            }
                             auto array_initializer = ConstantArray::create(arrayType_num, init_val, module);    
                             if(node.is_constant) {
                                 auto array = GlobalVariable::create(node.name, module, arrayType_num, true, array_initializer);//          是否是常量定义，初始化常量(ConstantZero类)
@@ -500,8 +506,11 @@ namespace SysYF
                         }
                         if (node.btype == SyntaxTree::Type::INT) {
                             auto arrayType_num = ArrayType::get(INT32_T, arrayLenghtLiteral);
+                            for(int i = (int)last_InitItem.list.size(); i < arrayLenghtLiteral; ++i) {
+                                init_val.emplace_back(CONST_INT(0));
+                            }
                             auto array = builder->create_alloca(arrayType_num); //          是否是常量定义，初始化常量(ConstantZero类)
-                            for(int i = 0; i < init_val.size(); ++i) {
+                            for(int i = 0; i < (int)init_val.size(); ++i) {
                                 auto InitAlloca = builder->create_gep(array, {CONST_INT(0), CONST_INT(i)});
                                 assignVal(InitAlloca, init_val[i], builder);
                             }
@@ -509,8 +518,11 @@ namespace SysYF
                         }
                         else {
                             auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
+                            for(int i = (int)last_InitItem.list.size(); i < arrayLenghtLiteral; ++i) {
+                                init_val.emplace_back(CONST_FLOAT(0));
+                            }
                             auto array = builder->create_alloca(arrayType_num); //          是否是常量定义，初始化常量(ConstantZero类)
-                            for(int i = 0; i < init_val.size(); ++i) {
+                            for(int i = 0; i < (int)init_val.size(); ++i) {
                                 auto InitAlloca = builder->create_gep(array, {CONST_INT(0), CONST_INT(i)});
                                 assignVal(InitAlloca, init_val[i], builder);
                             }
