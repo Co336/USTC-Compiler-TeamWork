@@ -561,7 +561,7 @@ namespace SysYF
                     }
                     else if (tmp_LVal_retValue)
                     {
-                        auto tmpValue = builder->create_load(latest_value);
+                        auto tmpValue = builder->create_load(tmpPtr);
                         latest_value = tmpValue;
                         return;
                     }
@@ -577,7 +577,7 @@ namespace SysYF
                     }
                     else if (tmp_LVal_retValue)
                     {
-                        auto tmpValue = builder->create_load(latest_value);
+                        auto tmpValue = builder->create_load(tmpPtr);
                         latest_value = tmpValue;
                         return;
                     }
