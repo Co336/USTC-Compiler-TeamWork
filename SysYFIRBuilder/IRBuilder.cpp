@@ -280,21 +280,6 @@ namespace SysYF
             // 判断是否为数组类型的参数
             if (!node.array_index.empty())
             {
-                /*LVal_retValue = true; // 标记需要返回值指针
-
-                // 逐层处理数组维度（从内到外）
-                for (size_t i = node.array_index.size(); i-- > 0;)
-                {
-                    auto dimension = node.array_index[i];
-                    LVal_retPtr = 0; LVal_retValue = 1;
-                    dimension->accept(*this);
-
-                    // 使用当前维度大小更新参数类型为数组类型
-                    paramType = ArrayType::get(paramType, static_cast<ConstantInt *>(latest_value.get())->get_value());
-                }
-
-                LVal_retValue = false;
-                */
                 // 将参数类型更新为指针类型
                 paramType = PointerType::get(paramType);
             }
@@ -585,6 +570,7 @@ namespace SysYF
                 {
                     // printf("2\n");
                     // 说明tmpArray 是pointer类型， 那么我们直接走偏移量
+                    tmpArray = builder->create_load(tmpArray);
                     auto tmpPtr = builder->create_gep(tmpArray, {latest_value});
                     if (tmp_LVal_retPtr)
                     {
