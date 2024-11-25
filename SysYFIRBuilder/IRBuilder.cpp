@@ -475,14 +475,21 @@ namespace SysYF
                         node.initializers->accept(*this);
                         if(last_InitItem.list.empty()) {
                             if (node.btype == SyntaxTree::Type::INT) {
-                                auto zero_initializer = ConstantZero::create(INT32_T, module);
                                 auto arrayType_num = ArrayType::get(INT32_T, arrayLenghtLiteral);
-                                auto array = builder->create_alloca(arrayType_num);
+                                auto array = builder->create_alloca(arrayType_num); //          是否是常量定义，初始化常量(ConstantZero类)
+                                for(int i = 0; i < arrayLenghtLiteral; ++i) {
+                                    auto InitAlloca = builder->create_gep(array, {CONST_INT(0), CONST_INT(i)});
+                                    assignVal(InitAlloca, CONST_INT(0), builder);
+                                }
                                 scope.push(node.name, array);
-                            } else {
-                                auto zero_initializer = ConstantZero::create(FLOAT_T, module);
+                            }
+                            else {
                                 auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
-                                auto array = builder->create_alloca(arrayType_num);
+                                auto array = builder->create_alloca(arrayType_num); //          是否是常量定义，初始化常量(ConstantZero类)
+                                for(int i = 0; i < arrayLenghtLiteral; ++i) {
+                                    auto InitAlloca = builder->create_gep(array, {CONST_INT(0), CONST_INT(i)});
+                                    assignVal(InitAlloca, CONST_FLOAT(0), builder);
+                                }
                                 scope.push(node.name, array);
                             }
                             return;
