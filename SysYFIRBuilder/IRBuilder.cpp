@@ -365,6 +365,30 @@ namespace SysYF
 
                     if(node.is_inited) {
                         node.initializers->accept(*this);
+                        if(last_InitItem.list.empty()) {
+                            if (node.btype == SyntaxTree::Type::INT) {
+                                auto zero_initializer = ConstantZero::create(INT32_T, module);
+                                auto arrayType_num = ArrayType::get(INT32_T, arrayLenghtLiteral);
+                                if(node.is_constant) {
+                                    auto array = GlobalVariable::create(node.name, module, arrayType_num, true, zero_initializer);// 参数解释：  名字name，所属module，全局变量类型type，
+                                    scope.push(node.name, array);
+                                } else {
+                                    auto array = GlobalVariable::create(node.name, module, arrayType_num, false, zero_initializer);// 参数解释：  名字name，所属module，全局变量类型type，
+                                    scope.push(node.name, array);
+                                }
+                            } else {
+                                auto zero_initializer = ConstantZero::create(FLOAT_T, module);
+                                auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
+                                if(node.is_constant) {
+                                    auto array = GlobalVariable::create(node.name, module, arrayType_num, true, zero_initializer);// 参数解释：  名字name，所属module，全局变量类型type，
+                                    scope.push(node.name, array);
+                                } else {
+                                    auto array = GlobalVariable::create(node.name, module, arrayType_num, false, zero_initializer);// 参数解释：  名字name，所属module，全局变量类型type，
+                                    scope.push(node.name, array);
+                                }
+                            }
+                            return;
+                        }
                         for(auto item : last_InitItem.list) {
                             LVal_retValue = 1; LVal_retPtr = 0;
                             init_val.emplace_back(std::dynamic_pointer_cast<Constant>(item.expr));
@@ -449,6 +473,20 @@ namespace SysYF
 
                     if(node.is_inited) {
                         node.initializers->accept(*this);
+                        if(last_InitItem.list.empty()) {
+                            if (node.btype == SyntaxTree::Type::INT) {
+                                auto zero_initializer = ConstantZero::create(INT32_T, module);
+                                auto arrayType_num = ArrayType::get(INT32_T, arrayLenghtLiteral);
+                                auto array = builder->create_alloca(arrayType_num);
+                                scope.push(node.name, array);
+                            } else {
+                                auto zero_initializer = ConstantZero::create(FLOAT_T, module);
+                                auto arrayType_num = ArrayType::get(FLOAT_T, arrayLenghtLiteral);
+                                auto array = builder->create_alloca(arrayType_num);
+                                scope.push(node.name, array);
+                            }
+                            return;
+                        }
                         for(auto item : last_InitItem.list) {
                             LVal_retValue = 1; LVal_retPtr = 0;
                             init_val.emplace_back(std::dynamic_pointer_cast<Constant>(item.expr));
@@ -554,6 +592,7 @@ namespace SysYF
                 
                 //  处理数组下标
                 auto tmpIndex = node.array_index[0];
+                LVal_retValue = 1; LVal_retPtr = 0;
                 tmpIndex->accept(*this);
                 //  latest_value 就是数组下标的值。
                 auto IndexType = latest_value->get_type();
