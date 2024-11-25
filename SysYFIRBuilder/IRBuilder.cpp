@@ -533,7 +533,7 @@ namespace SysYF
                 //  Lval -> Ident[exp]
                 //  我们暂不考虑多维数组情况
                 auto tmpArray = scope.find(node.name, false);
-                auto tmpArrayType = tmpArray->get_type()->get_element_type();
+                auto tmpArrayType = tmpArray->get_type()->get_pointer_element_type();
 
                 //  处理数组下标
                 auto tmpIndex = node.array_index[0];
