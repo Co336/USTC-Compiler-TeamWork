@@ -280,7 +280,7 @@ namespace SysYF
             // 判断是否为数组类型的参数
             if (!node.array_index.empty())
             {
-                LVal_retValue = true; // 标记需要返回值指针
+                /*LVal_retValue = true; // 标记需要返回值指针
 
                 // 逐层处理数组维度（从内到外）
                 for (size_t i = node.array_index.size(); i-- > 0;)
@@ -294,7 +294,7 @@ namespace SysYF
                 }
 
                 LVal_retValue = false;
-
+                */
                 // 将参数类型更新为指针类型
                 paramType = PointerType::get(paramType);
             }
