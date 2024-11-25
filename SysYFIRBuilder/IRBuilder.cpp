@@ -102,6 +102,7 @@ namespace SysYF
             else
             {
                 //  基本类型只能为int | float， 我们不考虑给变量赋布尔值的情况。
+                // printf("13\n");
                 throw UnreachableException();
             }
         }
@@ -232,6 +233,7 @@ namespace SysYF
 
             // 处理函数体
             node.body->accept(*this);
+            // printf("10\n");
 
             // 如果函数体内没有返回指令，补充默认返回
             if (!func_ret)
@@ -257,7 +259,9 @@ namespace SysYF
 
             // 恢复 retAlloc 并退出作用域
             retAlloc = tmpAlloc;
+            // printf("11\n");
             scope.exit();
+            // printf("12\n");
         }
 
         void IRBuilder::visit(SyntaxTree::FuncFParamList &node)
@@ -282,6 +286,7 @@ namespace SysYF
                 for (size_t i = node.array_index.size(); i-- > 0;)
                 {
                     auto dimension = node.array_index[i];
+                    LVal_retPtr = 0; LVal_retValue = 1;
                     dimension->accept(*this);
 
                     // 使用当前维度大小更新参数类型为数组类型
@@ -502,7 +507,7 @@ namespace SysYF
         void IRBuilder::visit(SyntaxTree::LVal &node)
         {
             //  在VarDef时需要将<name, Ptr<value> >一起压入当前作用域中。
-
+            // printf("1\n");
             //  处理数组index的时候也可能调用LVal， 所以这里可能嵌套， 先保存全局变量的值。
             auto tmp_LVal_retPtr = LVal_retPtr;
             auto tmp_LVal_retValue = LVal_retValue;
@@ -530,11 +535,38 @@ namespace SysYF
             }
             else
             {
+                
                 //  Lval -> Ident[exp]
                 //  我们暂不考虑多维数组情况
                 auto tmpArray = scope.find(node.name, false);
-                auto tmpArrayType = tmpArray->get_type()->get_pointer_element_type();
+                // if(std::dynamic_pointer_cast<GlobalVariable>(tmpArray)) {
+                //     //  处理数组下标
+                //     auto tmpIndex = node.array_index[0];
+                //     tmpIndex->accept(*this);
+                //     //  latest_value 就是数组下标的值。
+                //     auto IndexType = latest_value->get_type();
+                //     if (IndexType == FLOAT_T)
+                //     {
+                //         throw UnreachableException();
+                //         return;
+                //     }
 
+                //     auto tmpPtr = builder->create_gep(tmpArray, {CONST_INT(0), latest_value});
+                //     if (tmp_LVal_retPtr)
+                //     {
+                //         //  这里和单标识符一样了
+                //         latest_ptr = tmpPtr;
+                //         return;
+                //     }
+                //     else if (tmp_LVal_retValue)
+                //     {
+                //         auto tmpValue = builder->create_load(latest_value);
+                //         latest_value = tmpValue;
+                //         return;
+                //     }
+                // }
+                auto _ArrayType = tmpArray->get_type()->get_pointer_element_type();
+                
                 //  处理数组下标
                 auto tmpIndex = node.array_index[0];
                 tmpIndex->accept(*this);
@@ -549,8 +581,9 @@ namespace SysYF
                 //  如果考虑到函数传参， 这里应该有两种tmpArray 的类型
                 //  如果函数传参 int a[] , 符号表里推的应该是 INT32PTR_T, 我们取gep的时候就应该直接取偏移量，
                 //    否则需要先用常数 0 进入数组第一维， 再取偏移量。
-                if (tmpArrayType->is_pointer_type())
+                if (_ArrayType->is_pointer_type())
                 {
+                    // printf("2\n");
                     // 说明tmpArray 是pointer类型， 那么我们直接走偏移量
                     auto tmpPtr = builder->create_gep(tmpArray, {latest_value});
                     if (tmp_LVal_retPtr)
@@ -566,9 +599,11 @@ namespace SysYF
                         return;
                     }
                 }
-                else if (tmpArrayType->is_array_type())
+                else if(_ArrayType->is_array_type())
                 {
+                    // printf("3\n");
                     auto tmpPtr = builder->create_gep(tmpArray, {CONST_INT(0), latest_value});
+                    // printf("4\n");
                     if (tmp_LVal_retPtr)
                     {
                         //  这里和单标识符一样了
@@ -577,6 +612,7 @@ namespace SysYF
                     }
                     else if (tmp_LVal_retValue)
                     {
+                        // printf("5\n");
                         auto tmpValue = builder->create_load(tmpPtr);
                         latest_value = tmpValue;
                         return;
@@ -632,6 +668,7 @@ namespace SysYF
         //  一个基本块一个ret， 所以create_ret统一交给FuncDef处理
         void IRBuilder::visit(SyntaxTree::ReturnStmt &node)
         {
+            // printf("9\n");
             func_ret = 1;
             auto curFun = CurrentFunction;
             //  存的cur_func是Ptr<Function> 类型， 里面内置了get_return_type函数用来获取返回值类型。
@@ -651,10 +688,13 @@ namespace SysYF
             {
                 LVal_retValue = 1; LVal_retPtr = 0;
                 node.ret->accept(*this);
+                // printf("6\n");
                 auto RetValueType = latest_value->get_type();
+                // printf("7\n");
                 //  需要检查函数返回值类型和得到的ret参数类型是否一致， 如果不一致， 需要进行类型转换。
                 if (FuncRetType == INT32_T && RetValueType == INT32_T)
                 {
+                    // printf("8\n");
                     builder->create_store(latest_value, retAlloc);
                 }
                 else if (FuncRetType == FLOAT_T && RetValueType == FLOAT_T)
@@ -676,8 +716,12 @@ namespace SysYF
                 }
                 else
                 {
+                    // printf("9\n");
                     //  基本类型只能为int | float， 我们不考虑给变量赋布尔值的情况。
-                    throw UnreachableException();
+                    // if(std::dynamic_pointer_cast<ConstantInt>(latest_value)) {
+                    //     builder->create_store(latest_value, retAlloc);
+                    // }
+                    
                 }
 
                 builder->create_br(retBB);
@@ -729,6 +773,7 @@ namespace SysYF
             TrueBB = std::get<1>(temp_BBS);
             FalseBB = std::get<0>(temp_BBS);
             // 访问操作数
+            LVal_retPtr = 0; LVal_retValue = 1;
             node.rhs->accept(*this);
             // 得到新的 latest_value
             auto value_temp = latest_value;
@@ -837,6 +882,7 @@ namespace SysYF
                 Ptr<BasicBlock> RightBB_local = BasicBlock::create(module, BB_id_string, CurrentFunction);
                 // 左操作数的真分支为RightBB
                 TrueBB = RightBB_local;
+                LVal_retPtr = 0; LVal_retValue = 1;
                 node.lhs->accept(*this);
                 // 得到左边的 latest_value
                 // 可能不是bool类型，要先转成bool类型
@@ -864,6 +910,7 @@ namespace SysYF
                 // 插入 RightBB_local 的 label
                 builder->set_insert_point(RightBB_local);
                 // 继续访问右边
+                LVal_retPtr = 0; LVal_retValue = 1;
                 node.rhs->accept(*this);
                 // 得到lateet_value
                 // 可能不是bool类型，要先转成bool类型
@@ -888,8 +935,10 @@ namespace SysYF
             {
                 // 为关系算符
                 // 得到左右操作数的值
+                LVal_retPtr = 0; LVal_retValue = 1;
                 node.lhs->accept(*this);
                 auto l_value_temp = latest_value;
+                LVal_retPtr = 0; LVal_retValue = 1;
                 node.rhs->accept(*this);
                 auto r_value_temp = latest_value;
 
@@ -994,9 +1043,11 @@ namespace SysYF
         void IRBuilder::visit(SyntaxTree::BinaryExpr &node)
         {
             // 双目运算 加 减 乘 除 模
+            LVal_retPtr = 0; LVal_retValue = 1;
             node.lhs->accept(*this);
             // 得到返回后更新的latest_value值
             auto l_value_temp = latest_value;
+            LVal_retPtr = 0; LVal_retValue = 1;
             node.rhs->accept(*this);
             // 得到返回后更新的latest_value值)
             auto r_value_temp = latest_value;
@@ -1192,6 +1243,7 @@ namespace SysYF
         {
             // 单目运算符 正 和 负
             // 需要判断操作数是否是常量，若是则不需发射指令，直接设置latest_value即可
+            LVal_retPtr = 0; LVal_retValue = 1;
             node.rhs->accept(*this);
             // 得到latest_value
             auto value_temp = latest_value;
