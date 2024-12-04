@@ -28,6 +28,7 @@ namespace SysYF
         bool func_block;    // 指示FuncDef调用的block函数
         //  To be done :这里进入FuncDef 需要把func_ret置0， 离开FuncDef时需要判断， 如果是在int main里面且没有return， 需要补充返回0。
         bool func_ret;                     // 指示当前函数是否有返回标识
+        bool func_call;     // 当 funccall
         Ptr<Value> latest_value = nullptr; // 指示当前最近处理的表达式的值
         Ptr<Value> latest_ptr = nullptr;   // 指示当前最近处理的标识符的指针
         //  To be done :这里进入FuncDef 需要用tmpAlloc暂存retAlloc, 然后把retAlloc置为nullptr， returnstmt会把返回值存在retAlloc里再取出来返回，
@@ -280,9 +281,11 @@ namespace SysYF
             // 判断是否为数组类型的参数
             if (!node.array_index.empty())
             {
-                // 将参数类型更新为指针类型
+            //     // 将参数类型更新为指针类型
                 paramType = PointerType::get(paramType);
             }
+
+            
 
             // 将参数类型和参数名存入参数列表
             Params.push_back(paramType);
@@ -559,7 +562,11 @@ namespace SysYF
                 // Lval -> Ident
                 auto tmpPtr = scope.find(node.name, false);
                 //  需要保持Lval_retPtr 和 LVal_retValue 只有一个为1， 后面我会检查其他函数的情况
-                if (tmp_LVal_retPtr)
+                if (tmpPtr->get_type()->get_pointer_element_type()->is_array_type()) {
+                    latest_ptr = builder->create_gep(tmpPtr, {CONST_INT(0), CONST_INT(0)});
+                    latest_value = latest_ptr;
+                }
+                else if (tmp_LVal_retPtr)
                 {
                     //  这里说明调用者希望返回一个表达式左值， 我们需要返回的是对应标识符的指针，方便调用者进行赋值。
                     //  在压栈的时候压的Ptr<value> 是alloc的空间， 也就是说这里本身作用域里储存的就是指针。
@@ -1356,6 +1363,7 @@ namespace SysYF
             // 下面递归访问获得函数实参列表
             std::vector<Ptr<Value>> true_params;
             auto index = 0;
+            func_call = 1;
             for (auto &arg : node.params)
             {
                 LVal_retValue = 1; LVal_retPtr = 0;
