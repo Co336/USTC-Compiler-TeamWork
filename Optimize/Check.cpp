@@ -1,9 +1,9 @@
 #include "Check.h"
 #include "Module.h"
 
-#include "logging.hpp"
-#include <algorithm>
-#include <unordered_map>
+// #include "logging.hpp"
+// #include <algorithm>
+// #include <unordered_map>
 
 namespace SysYF {
 namespace IR {
@@ -19,10 +19,16 @@ void Check::execute() {
     std::cout << "Check Start" << std::endl;
 
     // some vars
-    std::unordered_map<Ptr<BasicBlock>, std::set<Ptr<Value>>> def_bb;
-    std::unordered_map<Ptr<BasicBlock>, std::set<Ptr<Value>>> pre_def;
-    std::set<Ptr<Value>> all_def;
+    // std::unordered_map<Ptr<BasicBlock>, std::set<Ptr<Value>>> bb_insts_map;
+    // std::unordered_map<Ptr<BasicBlock>, std::set<Ptr<Value>>> pre_def;
+    std::set<Ptr<Value>> defs;
+    std::set<Ptr<Value>> globaldefs;
 
+    // get all the globalvars first
+    for(const auto &global : this->module.lock()->get_global_variable()){
+        globaldefs.insert(global);
+    }
+    // 4 check  
     for(const auto &func : this->module.lock()->get_functions()){
         // if no bb, next
         if(func->get_basic_blocks().empty())
@@ -55,7 +61,7 @@ void Check::execute() {
         for(const auto &bb : func->get_basic_blocks()){
             // get final inst of a bb
             auto last_inst = bb->get_instructions().back();
-            if(!last_inst->is_ret() && !last_inst->is_br()){
+            if(!last_inst->isTerminator()){
                 std::cout << "The last instruction of a bb is neither ret or br!" << std::endl;
                 std::cout << "Error bb: "<< bb->get_name() << ", whose last instruction is " << last_inst->get_instr_op_name() << std::endl;
                 exit(0);
@@ -81,13 +87,39 @@ void Check::execute() {
         std::cout << " Use-Def Chain Check Pass." << std::endl;
 
         // -----check def before use-----
-
-
-
+        // get all the defs
+        for(const auto &args : func->get_args())
+            defs.insert(args);
+        for(const auto &bb : func->get_basic_blocks()){ 
+            for(const auto &inst : bb->get_instructions()){
+                if(!inst->is_void())
+                    defs.insert(inst);
+            }
+        }
+        // check if all operands are defs
+        for(const auto &bb : func->get_basic_blocks()){ 
+            for(const auto &inst : bb->get_instructions()){
+                for(const auto &op : inst->get_operands()){
+                    auto Type = op.lock()->get_type();
+                    // is const, jump it
+                    if(dynamic_pointer_cast<Constant>(op.lock())) 
+                        continue;
+                    if(!(Type->is_array_type() || 
+                    Type->is_float_type() || 
+                    Type->is_pointer_type() || 
+                    Type->is_integer_type())) 
+                        continue;
+                    if(!(defs.count(op.lock()) || globaldefs.count(op.lock()))){
+                        std::cout << "Use before define!" << std::endl;
+                        std::cout << "Error bb: " << bb->get_name() << ", whose instruction is " << inst->get_instr_op_name() << ", operand is " << op.lock()->get_name() << std::endl;
+                        exit(0);
+                    }
+                }
+            }
+        }
+        std::cout << " Def Before Use Check Pass." << std::endl;
     }
-
 }
-
 }
 }
 
