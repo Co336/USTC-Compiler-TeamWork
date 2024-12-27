@@ -38,7 +38,16 @@ void Check::execute() {
         for(const auto &bb : func->get_basic_blocks()){
             for(const auto &pre_bb : bb->get_pre_basic_blocks()){
                 auto pre_succ_bbs = pre_bb.lock()->get_succ_basic_blocks();
-                if(std::find(pre_succ_bbs.begin(), pre_succ_bbs.end(), bb) == pre_succ_bbs.end()){
+                bool found = false;
+                for (const auto &succ_bb_weak : pre_succ_bbs) {
+                    // weak_ptr -> shared_ptr
+                    auto succ_bb = succ_bb_weak.lock();
+                    if (succ_bb && succ_bb == bb) {
+                        found = true;
+                        break;
+                    }
+                }
+                if(!found){
                     // there is an error 
                     std::cout << "A bb's pre-bb's succ-bb has not itself!" << std::endl;
                     std::cout << "Error bb: " << bb->get_name() <<", whose pre-bb is " << pre_bb.lock()->get_name() << std::endl;
@@ -47,7 +56,16 @@ void Check::execute() {
             }
             for(const auto &succ_bb : bb->get_succ_basic_blocks()){
                 auto succ_pre_bbs = succ_bb.lock()->get_pre_basic_blocks();
-                if(std::find(succ_pre_bbs.begin(), succ_pre_bbs.end(), bb) == succ_pre_bbs.end()){
+                bool found = false;
+                for (const auto &pre_bb_weak : succ_pre_bbs) {
+                    // weak_ptr->shared_ptr
+                    auto pre_bb = pre_bb_weak.lock();
+                    if (pre_bb && pre_bb == bb) {
+                        found = true;
+                        break;
+                    }
+                }
+                if(!found){
                      // there is an error 
                     std::cout << "A bb's succ-bb's pre-bb has not itself!" << std::endl;
                     std::cout << "Error bb: " << bb->get_name() << ", whose succ-bb is " << succ_bb.lock()->get_name() << std::endl;
@@ -55,7 +73,7 @@ void Check::execute() {
                 }
             }
         }
-        std::cout << " BB Pred-Succ Check Pass." << std::endl;
+        std::cout << "BB Pred-Succ Check Pass." << std::endl;
 
         // ----------check last inst of BB----------
         for(const auto &bb : func->get_basic_blocks()){
@@ -67,7 +85,7 @@ void Check::execute() {
                 exit(0);
             }
         }
-        std::cout << " Last inst of BB Check Pass." << std::endl;
+        std::cout << "Last inst of BB Check Pass." << std::endl;
 
         // ----------check use-def chain----------
         for(const auto &bb : func->get_basic_blocks()){
@@ -84,7 +102,7 @@ void Check::execute() {
                 }
             }
         }
-        std::cout << " Use-Def Chain Check Pass." << std::endl;
+        std::cout << "Use-Def Chain Check Pass." << std::endl;
 
         // ----------check def before use----------
             // get all the defs
@@ -117,7 +135,7 @@ void Check::execute() {
                 }
             }
         }
-        std::cout << " Def Before Use Check Pass." << std::endl;
+        std::cout << "Def Before Use Check Pass." << std::endl;
     }
 }
 }
