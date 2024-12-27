@@ -34,7 +34,7 @@ void Check::execute() {
         if(func->get_basic_blocks().empty())
             continue;
         std::cout << "Now at Func: " << func->get_name() << std::endl;
-        // -----check BB pred and succ-----
+        // ----------check BB pred and succ----------
         for(const auto &bb : func->get_basic_blocks()){
             for(const auto &pre_bb : bb->get_pre_basic_blocks()){
                 auto pre_succ_bbs = pre_bb.lock()->get_succ_basic_blocks();
@@ -57,7 +57,7 @@ void Check::execute() {
         }
         std::cout << " BB Pred-Succ Check Pass." << std::endl;
 
-        // -----check last inst of BB-----
+        // ----------check last inst of BB----------
         for(const auto &bb : func->get_basic_blocks()){
             // get final inst of a bb
             auto last_inst = bb->get_instructions().back();
@@ -69,7 +69,7 @@ void Check::execute() {
         }
         std::cout << " Last inst of BB Check Pass." << std::endl;
 
-        // -----check use-def chain-----
+        // ----------check use-def chain----------
         for(const auto &bb : func->get_basic_blocks()){
             for(const auto &inst : bb->get_instructions()){
                 for(const auto &operand : inst->get_operands()){
@@ -86,8 +86,8 @@ void Check::execute() {
         }
         std::cout << " Use-Def Chain Check Pass." << std::endl;
 
-        // -----check def before use-----
-        // get all the defs
+        // ----------check def before use----------
+            // get all the defs
         for(const auto &args : func->get_args())
             defs.insert(args);
         for(const auto &bb : func->get_basic_blocks()){ 
@@ -96,7 +96,7 @@ void Check::execute() {
                     defs.insert(inst);
             }
         }
-        // check if all operands are defs
+            // make sure all operands are defs
         for(const auto &bb : func->get_basic_blocks()){ 
             for(const auto &inst : bb->get_instructions()){
                 for(const auto &op : inst->get_operands()){
